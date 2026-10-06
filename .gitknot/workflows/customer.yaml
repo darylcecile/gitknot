@@ -1,0 +1,31 @@
+version: 1
+name: customer
+triggers: [pull_request.updated, workflow.dispatch]
+source: event.commit
+
+defaults:
+  executor: { type: self_hosted, pool: linux-build }
+  toolchain: node-24@2026-10-01
+  timeout: 10m
+
+access:
+  repository: read
+
+jobs:
+  test:
+    cache:
+      paths: [.cache/npm]
+      key_files: [package-lock.json]
+    steps:
+      - run: npm ci --cache .cache/npm
+      - run: npm test
+
+  package:
+    needs: [test]
+    steps:
+      - run: npm ci
+      - run: npm run build
+    outputs:
+      cli:
+        path: packages/cli/dist/
+        retention: 14d

@@ -1,0 +1,8 @@
+{
+  "id": "exec-production-001",
+  "origin": "https://hosted.execution.gitknot.com",
+  "callback_origin": "https://api.gitknot.com",
+  "producer_id": "hosted:exec-production-001:linux-small",
+  "key_binding": "HOSTED_CONTROL_KEY",
+  "callback_key_binding": "HOSTED_CALLBACK_KEY_V1"
+}

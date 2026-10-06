@@ -1,0 +1,8 @@
+{
+  "name": "@gitknot/billing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts", "./*": "./src/*.ts" },
+  "dependencies": { "@gitknot/core": "*", "zod": "4.6.5" }
+}

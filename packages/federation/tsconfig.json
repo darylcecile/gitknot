@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["src", "testing", "../../apps/api/src/modules/federation.ts", "../../tests/high-level/federation.test.ts"],
+  "exclude": ["node_modules", "dist"]
+}

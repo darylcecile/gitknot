@@ -1,0 +1,6 @@
+{
+  "name": "gitknot-trusted-git-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": { "zod": "4.6.5" }
+}

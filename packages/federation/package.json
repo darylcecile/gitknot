@@ -1,0 +1,31 @@
+{
+  "name": "@gitknot/federation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./integration": "./src/integration.ts",
+    "./broker": "./src/broker.ts"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "jose": "6.2.12",
+    "xml-crypto": "6.3.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "miniflare": "5.20261001.0-alpha"
+  },
+  "peerDependencies": {
+    "@gitknot/billing": "0.1.0",
+    "@gitknot/core": "0.1.0",
+    "@gitknot/secrets": "0.1.0",
+    "hono": "4.13.13",
+    "zod": "4.6.5"
+  }
+}

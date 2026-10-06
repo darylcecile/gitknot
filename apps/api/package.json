@@ -1,0 +1,8 @@
+{
+  "name": "@gitknot/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "cf build", "dev": "cf dev" },
+  "dependencies": { "@gitknot/core": "*", "@gitknot/billing": "*", "@simplewebauthn/server": "14.0.3", "hono": "4.13.13", "zod": "4.6.5" }
+}

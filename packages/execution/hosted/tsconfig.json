@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.json",
+  "include": [
+    "../src/hosted/**/*.ts",
+    "../../../workers/execution/src/sandbox.ts",
+    "../../../workers/execution/src/egress.ts",
+    "../../../workers/execution/src/snapshot-bucket.ts",
+    "../../../tests/high-level/execution-hosted-files.test.ts",
+    "../../../tests/high-level/execution-remote-host.test.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}

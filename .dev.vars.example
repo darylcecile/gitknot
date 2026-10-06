@@ -1,0 +1,26 @@
+# npm run setup generates random local-only values in .gitknot/local/keys.json.
+# The development wrapper injects only the keys owned by each Worker.
+# No production KEK belongs in local development.
+#
+# For an individual Worker project, the cf CLI accepts a .dev.vars file next to
+# its generated project config. These are field names, not usable defaults.
+# INTERNAL_SERVICE_KEY=<32-or-more-random-bytes>
+# SESSION_KEY=<API-only-identity-master-key>
+# IDENTITY_KEYS_JSON={"current":"session-v1","keys":{"session-v1":"<base64url-of-UTF8-SESSION_KEY>"}}
+# SECRETS_CLIENT_KEY=<this-Worker's-distinct-broker-caller-key>
+# IDENTITY_KEYS_JSON is required on API even when SESSION_KEY is present.
+# Setup preserves an existing ring; upgrading a SESSION_KEY-only file encodes
+# the existing string's UTF-8 bytes as session-v1 without changing its material.
+#
+# Only workers/secrets receives these provider secrets:
+# SECRETS_KEK_KEYRING_JSON={"local-v1":"<base64url-32-random-bytes>"}
+# SECRETS_SERVICE_KEYS_JSON={"development-cell-001-api":{"key":"<caller-key>","scopes":["vault.manage","vault.plan","webhooks.manage"]}}
+# SECRETS_FEDERATION_SERVICE_KEYS_JSON={"development-cell-001-api":{"key":"<same-API-caller-key>","scopes":["federation.manage","federation.exchange","federation.sign"],"account_ids":null,"repository_ids":null}}
+#
+# SECRETS_CLIENT_ID and SECRETS_KEK_CURRENT_ID are public, typed config values.
+# The broker also receives INTERNAL_SERVICE_KEY for bounded private routing RPC;
+# that key does not authorize vault or federation operations.
+# Remote-host HTTP tests supply their own isolated transport/control keys. The
+# normal development stack uses direct local execution and API-only identity keys.
+# Local IDENTITY_DB bindings include the generated IDENTITY_CELL_ID and
+# IDENTITY_SHARD_ID physical-home descriptors used by core authority selection.

@@ -1,0 +1,16 @@
+{
+  "name": "@gitknot/cli",
+  "version": "0.1.0",
+  "description": "GitKnot CLI, portable workflows, and customer-owned runner",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": { "node": ">=24.0.0 <27" },
+  "bin": { "gitknot": "./dist/cli/src/index.js" },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/executable.mjs",
+    "prepack": "npm run build"
+  },
+  "dependencies": { "yaml": "^2.9.1", "zod": "^4.6.5", "fast-xml-parser": "5.11.2" },
+  "devDependencies": { "typescript": "^7.0.2", "@types/node": "^24.0.0" }
+}

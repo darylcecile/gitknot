@@ -1,0 +1,17 @@
+{
+  "name": "@gitknot/git",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types.ts",
+    "./policy": "./src/policy.ts",
+    "./journal": "./src/journal.ts"
+  },
+  "dependencies": {
+    "@gitknot/core": "*",
+    "@gitknot/billing": "*",
+    "zod": "4.6.5"
+  }
+}

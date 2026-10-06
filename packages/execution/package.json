@@ -1,0 +1,24 @@
+{
+  "name": "@gitknot/execution",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./hosted": "./src/hosted/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@cloudflare/ci": "0.2.0",
+    "@cloudflare/sandbox": "0.12.1",
+    "@gitknot/core": "*",
+    "@gitknot/billing": "*",
+    "@gitknot/secrets": "*",
+    "@gitknot/federation": "*",
+    "@gitknot/workflows": "*",
+    "@gitknot/runner": "*",
+    "hono": "4.13.13",
+    "fast-xml-parser": "5.11.2",
+    "zod": "4.6.5"
+  }
+}

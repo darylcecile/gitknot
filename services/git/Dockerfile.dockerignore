@@ -1,0 +1,14 @@
+**
+!packages/
+!packages/core/
+!packages/core/src/
+!packages/core/src/**
+!packages/git/
+!packages/git/src/
+!packages/git/src/**
+!services/
+!services/git/
+!services/git/Dockerfile
+!services/git/runtime.package.json
+!services/git/src/
+!services/git/src/**

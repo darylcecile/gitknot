@@ -1,0 +1,7 @@
+{
+  "repo_ids": ["r_replace_with_capacity_fixture"],
+  "account_id": "org_replace_with_capacity_fixture",
+  "organization_read_path": "/v1/accounts/org_replace_with_capacity_fixture/members",
+  "git_remote": "http://localhost:8788/capacity/fixture.git",
+  "git_branch": "load-test"
+}

@@ -1,0 +1,37 @@
+version: 1
+name: verify
+triggers: [pull_request.updated, merge_candidate.created]
+source: event.commit
+
+defaults:
+  executor:
+    type: hosted
+    profile: linux-small
+  toolchain: node-24@2026-10-01
+  timeout: 10m
+
+access:
+  repository: read
+
+concurrency:
+  group: pull_request
+  supersede: cancel
+
+jobs:
+  test:
+    cache:
+      paths: [.cache/npm]
+      key_files: [package-lock.json]
+    steps:
+      - run: npm ci --cache .cache/npm
+      - run: npm test
+
+  build:
+    needs: [test]
+    steps:
+      - run: npm ci
+      - run: npm run build
+    outputs:
+      bundle:
+        path: dist/
+        retention: 14d

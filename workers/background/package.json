@@ -1,0 +1,14 @@
+{
+  "name": "@gitknot/background-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@gitknot/core": "*",
+    "@gitknot/operations": "*",
+    "@gitknot/git": "*",
+    "@gitknot/execution": "*",
+    "@gitknot/billing": "*",
+    "@gitknot/secrets": "*"
+  }
+}

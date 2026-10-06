@@ -1,0 +1,110 @@
+name: Verify GitKnot
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CI: 'true'
+      CLOUDFLARE_SEND_METRICS: 'false'
+      CLOUDFLARE_VITE_FORCE_LOCAL: 'true'
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Prepare durable local state
+        run: node scripts/setup.ts --skip-install
+      - name: Typecheck and validate all cf modes
+        run: |
+          npm run typecheck
+          npm run check:config -- --all-layouts
+      - name: High-level behavior and native Git protocol
+        run: npm test
+      - name: Install browser
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Browser journeys against local services
+        run: npm run test:e2e
+      - name: Offline Cloudflare build
+        run: |
+          npm run build -- --save-images
+          npm run check:config -- --build
+          npm run openapi -- --build-output .
+      - name: Preserve build and verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gitknot-verify-${{ github.sha }}
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: ignore
+          # E2E run roots contain state and credentials; upload only report/result leaves.
+          path: |
+            .cloudflare/output/v0/
+            .cloudflare/accounts/
+            .cloudflare/build-manifest.json
+            .cloudflare/images/
+            docs/api/openapi.json
+            .gitknot/e2e/*/report/
+            .gitknot/e2e/*/test-results/
+
+  remote-build:
+    name: Offline isolated-account hosted build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CI: 'true'
+      CLOUDFLARE_SEND_METRICS: 'false'
+      CLOUDFLARE_VITE_FORCE_LOCAL: 'true'
+      WRANGLER_SEND_METRICS: 'false'
+      # Synthetic offline fixtures: never provider identities or release evidence.
+      GITKNOT_PRODUCTION_TRUST_ACCOUNT_ID: '11111111111111111111111111111111'
+      GITKNOT_PRODUCTION_EXECUTION_ACCOUNT_ID: '22222222222222222222222222222222'
+      GITKNOT_PRODUCTION_HOSTED_EXECUTOR_FILE: .github/fixtures/hosted-executor.json
+      GITKNOT_PRODUCTION_HOSTED_PREVIOUS_KEY_BINDINGS: HOSTED_CONTROL_KEY_PREVIOUS,HOSTED_CALLBACK_KEY,HOSTED_CALLBACK_KEY_PREVIOUS
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Build both account roots and validate the composed output
+        run: |
+          npm run build -- --mode production --save-images
+          npm run check:config -- --mode production --build
+      - name: Preserve offline hosted build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gitknot-remote-build-${{ github.sha }}
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            .cloudflare/output/v0/
+            .cloudflare/accounts/
+            .cloudflare/build-manifest.json
+            .cloudflare/images/

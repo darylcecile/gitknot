@@ -1,0 +1,49 @@
+{
+  "name": "gitknot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0 <27" },
+  "workspaces": ["apps/*", "packages/*", "workers/*", "services/*"],
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "build": "tsx scripts/build.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "check": "npm run typecheck && npm run check:config && npm test && npm run build",
+    "check:config": "tsx scripts/check-config.ts",
+    "gitknot": "tsx packages/cli/src/index.ts",
+    "setup": "node scripts/setup.ts",
+    "db:migrate:local": "tsx scripts/migrate.ts --local",
+    "infra:plan": "tsx infra/plan.ts",
+    "infra:apply": "tsx scripts/provision.ts",
+    "backup": "tsx scripts/backup.ts",
+    "restore": "tsx scripts/restore.ts",
+    "test:load": "tsx scripts/load-test.ts",
+    "openapi": "tsx scripts/openapi.ts"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7",
+    "hono": "4.13.13",
+    "zod": "4.6.5",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@cloudflare/build-output-utils": "0.8.5",
+    "@cloudflare/config": "0.23.0",
+    "@cloudflare/vite-plugin": "2.0.0-beta.sha-52b0dc0e9",
+    "@cloudflare/workers-types": "5.20261004.1",
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.1",
+    "cf": "1.0.0-beta.12",
+    "miniflare": "5.20261001.0-alpha",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
+  }
+}

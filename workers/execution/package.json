@@ -1,0 +1,12 @@
+{
+  "name": "@gitknot/execution-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@cloudflare/sandbox": "0.12.1",
+    "@gitknot/core": "*",
+    "@gitknot/billing": "*",
+    "@gitknot/execution": "*"
+  }
+}

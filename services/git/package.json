@@ -1,0 +1,15 @@
+{
+  "name": "@gitknot/git-native",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0 <25" },
+  "scripts": {
+    "start": "node --experimental-strip-types src/main.ts",
+    "test:protocol": "vitest run --root ../.. tests/high-level/git-native.test.ts"
+  },
+  "dependencies": {
+    "@gitknot/core": "*",
+    "@gitknot/git": "*"
+  }
+}
