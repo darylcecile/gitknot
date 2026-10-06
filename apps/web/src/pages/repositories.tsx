@@ -4,6 +4,7 @@ import {
   NavLink,
   Outlet,
   useNavigate,
+  useLocation,
   useOutletContext,
   useParams,
   useSearchParams,
@@ -68,6 +69,7 @@ import { Markdown } from "../components/markdown/render.tsx";
 import { SubscriptionButton } from "../components/subscription.tsx";
 import { useAuth } from "../auth.tsx";
 import { revisionSnapshot } from "../api/client.ts";
+import { ActionMenu, Popover } from "../components/popover.tsx";
 
 export const repositoryFields: Field[] = [
   {
@@ -92,6 +94,7 @@ export const repositoryFields: Field[] = [
     label: "Default branch",
     default: "main",
     required: true,
+    section: "Repository options",
   },
 ];
 
@@ -100,6 +103,7 @@ export function RepositoriesPage() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState(params.get("q") || "");
+  useEffect(() => setSearch(params.get("q") || ""), [params.get("q")]);
   const repositories = useCollection<Repository>(
     query(endpoints.repos, {
       q: params.get("q"),
@@ -111,9 +115,8 @@ export function RepositoriesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Your code, together"
         title="Repositories"
-        description="A home for every project and all the work around it."
+        description="Your projects and shared code."
         actions={
           <>
             <Link className="button button-secondary" to="/repos/import">
@@ -215,13 +218,13 @@ export function RepositoriesPage() {
                   <Link to={repoLink(repo.id)}>{repo.name}</Link>
                 )}
               </h2>
-              <p>{repo.description || "Code and collaboration, connected."}</p>
+              {repo.description && <p>{repo.description}</p>}
               <footer>
                 <span>
                   <GitBranch size={13} />
                   {repo.default_branch}
                 </span>
-                <Status value={repo.state} />
+                {repo.state !== "active" && <Status value={repo.state} />}
                 <Time value={repo.updated_at} />
               </footer>
               {repo.state === "deleted" && (
@@ -244,7 +247,7 @@ export function RepositoriesPage() {
         !repositories.error && (
           <Panel>
             <Empty
-              title="Make room for your next idea"
+              title="No repositories yet"
               description="Create a repository or import an existing project to bring code, issues, and workflows together."
               action={
                 <Link to="/repos/new" className="button button-primary">
@@ -267,12 +270,14 @@ export function NewRepositoryPage({
   importing?: boolean;
 }) {
   const navigate = useNavigate();
+  const { session } = useAuth();
   const accounts = useCollection<Entity>(endpoints.accounts);
   const fields: Field[] = repositoryFields.map((field) =>
     field.name === "owner_id"
       ? {
           ...field,
           type: "select",
+          default: accounts.items.find(account => account.owner_user_id === session?.user.id)?.id || (accounts.items.length === 1 ? accounts.items[0]!.id : ""),
           options: accounts.items.map((account) => ({
             value: account.id,
             label: displayName(account),
@@ -299,18 +304,18 @@ export function NewRepositoryPage({
       <PageHeader
         eyebrow={<Link to="/repos">Repositories</Link>}
         title={
-          importing ? "Bring your project along." : "Start something good."
+          importing ? "Import a repository" : "Create a repository"
         }
         description={
           importing
-            ? "Import Git history and refs through an authenticated, durable operation."
-            : "Choose an owner and an explicit audience. You can refine access in repository settings."
+            ? "Bring your project and its Git history to GitKnot."
+            : "A repository brings your code, issues, and pull requests together."
         }
       />
       <div className="form-page">
         <Panel>
           <ErrorNotice error={accounts.error} retry={accounts.refresh} />
-          <ResourceForm
+          {accounts.loading && !accounts.data ? <Loading rows={3} /> : !accounts.error && <ResourceForm
             path={importing ? "/v1/repos/imports" : endpoints.repos}
             fields={fields}
             draftKey={`repository-${importing ? "import" : "create"}`}
@@ -330,7 +335,7 @@ export function NewRepositoryPage({
                   : repoLink(repoId || result.data.id),
               );
             }}
-          />
+          />}
         </Panel>
       </div>
     </>
@@ -346,6 +351,7 @@ export const useRepository = () => useOutletContext<RepositoryContext>();
 
 export function RepositoryLayout() {
   const { repoId = "" } = useParams();
+  const section = useLocation().pathname.split("/")[3] || "";
   const repository = useResource<Repository>(endpoints.repo(repoId));
   const repo = repository.data;
   if (repository.loading && !repo) return <Loading />;
@@ -377,10 +383,12 @@ export function RepositoryLayout() {
           {repo.state !== "active" && <Status value={repo.state} />}
         </div>
         <div className="row-actions">
+          <ActionMenu label="Repository actions">
           <SubscriptionButton repoId={repo.id} label="Watch" />
           <CreateResource
             path={endpoints.repo(repo.id, "forks")}
             title="Fork"
+            variant="secondary"
             fields={[
               {
                 name: "owner_id",
@@ -397,6 +405,7 @@ export function RepositoryLayout() {
               );
             }}
           />
+          </ActionMenu>
         </div>
       </div>
       <nav aria-label="Repository navigation" className="tabs repository-tabs">
@@ -405,6 +414,9 @@ export function RepositoryLayout() {
             key={tab.path}
             to={repoLink(repo.id, tab.path)}
             end={!tab.path}
+            className={({ isActive }) => isActive
+              || (!tab.path && ["code", "edit", "history", "commits", "compare", "refs", "git"].includes(section))
+              || (tab.path === "workflows" && ["runs", "plans", "runners", "environments"].includes(section)) ? "active" : ""}
           >
             <tab.icon size={16} />
             {tab.label}
@@ -501,18 +513,10 @@ export function CodePage() {
           <History size={15} />
           History
         </Link>
-        <Link
-          to={repoLink(repo.id, "refs")}
-          className="button button-secondary"
-        >
-          Branches & tags
-        </Link>
-        <Link
-          to={repoLink(repo.id, "compare")}
-          className="button button-secondary"
-        >
-          Compare
-        </Link>
+        <ActionMenu label="More code actions">
+          <Link to={repoLink(repo.id, "refs")}>Branches & tags</Link>
+          <Link to={repoLink(repo.id, "compare")}>Compare changes</Link>
+        </ActionMenu>
         <Link
           to={repoLink(
             repo.id,
@@ -522,21 +526,17 @@ export function CodePage() {
         >
           {isDirectory || !path ? "New file" : "Propose edit"}
         </Link>
-        <details className="clone-popover">
-          <summary className="button button-primary">
-            <Code2 size={16} />
-            Clone
-          </summary>
-          <div>
-            <label>HTTPS remote</label>
+        <Popover label="Clone repository" className="clone-popover" trigger={<><Code2 size={16} aria-hidden="true" />Clone</>}>
+          {() => <div className="clone-content">
+            <h3>Clone with HTTPS</h3>
             <code>{clone}</code>
             <CopyButton
               value={`git clone ${clone}`}
               label="Copy clone command"
             />
             <p>Use a scoped GitKnot token for authenticated Git access.</p>
-          </div>
-        </details>
+          </div>}
+        </Popover>
       </div>
       <ErrorNotice error={refs.error} retry={refs.refresh} />
       <Pagination {...refs} />

@@ -6,6 +6,7 @@ import {
   type ButtonHTMLAttributes,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { Link } from "react-router";
 import {
   AlertCircle,
@@ -13,7 +14,7 @@ import {
   Check,
   ChevronRight,
   Clipboard,
-  FileQuestion,
+  Inbox,
   LoaderCircle,
   RefreshCw,
   X,
@@ -39,7 +40,7 @@ export function Button({
       disabled={props.disabled || busy}
       aria-busy={busy || undefined}
     >
-      {busy && <LoaderCircle className="spin" size={15} />}
+      {busy && <LoaderCircle className="spin" size={15} aria-hidden="true" />}
       {children}
     </button>
   );
@@ -170,7 +171,7 @@ export function Empty({
   return (
     <div className="empty-state">
       <div className="empty-icon">
-        <FileQuestion size={23} strokeWidth={1.5} />
+        <Inbox size={23} strokeWidth={1.5} aria-hidden="true" />
       </div>
       <h3>{title}</h3>
       {description && <p>{description}</p>}
@@ -292,7 +293,7 @@ export function Modal({
     if (open && !dialog.open) dialog.showModal();
     if (!open && dialog.open) dialog.close();
   }, [open]);
-  return (
+  return createPortal(
     <dialog
       ref={ref}
       className={`modal ${wide ? "modal-wide" : ""}`}
@@ -323,7 +324,7 @@ export function Modal({
         </Button>
       </header>
       {open && children}
-    </dialog>
+    </dialog>, document.body,
   );
 }
 
@@ -461,19 +462,25 @@ export function Metadata({ values }: { values: Record<string, unknown> }) {
           <div key={label}>
             <dt>{humanize(label)}</dt>
             <dd>
-              {typeof value === "object" ? (
-                <code>{JSON.stringify(value)}</code>
-              ) : (
-                text(
-                  value,
-                  value === true ? "Yes" : value === false ? "No" : "—",
-                )
-              )}
+              {label.endsWith("_at") && typeof value === "string" ? <Time value={value} /> : <Value value={value} />}
             </dd>
           </div>
         ))}
     </dl>
   );
+}
+
+export function Value({ value, depth = 0 }: { value: unknown; depth?: number }) {
+  if (value === null || value === undefined || value === "") return <span className="muted">None</span>;
+  if (typeof value === "boolean") return <>{value ? "Yes" : "No"}</>;
+  if (typeof value !== "object") return <>{String(value)}</>;
+  if (Array.isArray(value)) return value.length ? <span className="value-list">{value.map((item, index) => <span key={index}><Value value={item} depth={depth + 1} />{index < value.length - 1 && ", "}</span>)}</span> : <span className="muted">None</span>;
+  const object = record(value);
+  const summary = object.display_name || object.name || object.message || object.title;
+  if (summary) return <>{text(summary)}</>;
+  if (object.capability) return <>{text(object.capability)}{object.effect === "deny" ? " (denied)" : ""}</>;
+  if (depth >= 3) return <>{Object.keys(object).length} fields</>;
+  return <span className="value-object">{Object.entries(object).map(([key, item]) => <span key={key}><span className="muted">{humanize(key)}:</span> <Value value={item} depth={depth + 1} /></span>)}</span>;
 }
 
 export function JsonDetails({

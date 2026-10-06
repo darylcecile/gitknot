@@ -10,6 +10,8 @@ import {
   type Field,
 } from "../components/forms.tsx";
 import { ResourceCollection } from "../components/resources.tsx";
+import { ProviderEditor, oidcDefaults } from "../components/editors/provider-editor.tsx";
+import { CapabilitiesEditor } from "../components/editors/permissions.tsx";
 import {
   Button,
   DownloadButton,
@@ -26,10 +28,11 @@ const providerFields: Field[] = [
   { name: "name", label: "Provider name", required: true },
   {
     name: "config",
-    label: "Protocol and tenant configuration",
-    type: "json",
+    label: "Provider configuration",
+    type: "custom",
+    editor: ProviderEditor,
+    default: oidcDefaults,
     required: true,
-    help: "OIDC: protocol, issuer, authorization_endpoint, token_endpoint, jwks_uri, client_id, tenant_claim, tenant_values, external_id_claim. SAML: protocol, issuer, sso_url, signing_certificates and the same tenant mappings. Secrets are configured separately.",
   },
 ];
 
@@ -112,9 +115,7 @@ export function FederationProviders({ accountId }: { accountId: string }) {
             onDone={(result) => setDiscovery(result.data)}
           />
           {discovery !== null && (
-            <pre className="source-preview">
-              {JSON.stringify(discovery, null, 2)}
-            </pre>
+            <Metadata values={record(discovery)} />
           )}
         </div>
       </Panel>
@@ -220,7 +221,8 @@ export function FederationProviderPage() {
             {
               name: "capabilities",
               label: "SCIM capabilities",
-              type: "csv",
+              type: "custom",
+              editor: CapabilitiesEditor,
               default: [
                 "scim.users.read",
                 "scim.users.write",

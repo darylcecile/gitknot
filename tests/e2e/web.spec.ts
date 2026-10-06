@@ -171,17 +171,18 @@ async function signIn(page: Page, user: FixtureUser) {
   const me = await api(page, '/v1/me');
   expect(me.data.id).toBe(user.id);
   expect(me.data.email_verified).toBe(true);
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
   const workspace = page.getByRole('combobox', {
-    name: 'Workspace',
+    name: 'Go to account',
     exact: true,
   });
   const personal = workspace.locator(`option[value="${user.id}"]`);
   await expect(personal).toHaveCount(1);
-  await expect(personal).toContainText('Personal ·');
   await expect(personal).toContainText(`(@${user.username})`);
   await expect(
-    workspace.getByRole('option', { name: 'Choose a workspace', exact: true }),
+    workspace.getByRole('option', { name: 'Choose an account…', exact: true }),
   ).toBeDisabled();
+  await page.keyboard.press('Escape');
 }
 
 function runtimeErrors(page: Page) {
@@ -830,6 +831,7 @@ test('code and scoped settings: native files, viewer downloads, write-only vault
         JSON.stringify({ ...localStorage, ...sessionStorage }),
       ),
     ).not.toContain(secret);
+    await row.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
     await row.getByRole('button', { name: 'Edit', exact: true }).click();
     const edit = page.getByRole('dialog', { name: 'Edit secret' });
     await expect(edit.getByLabel(/^Secret value/)).toHaveValue('');
@@ -841,9 +843,9 @@ test('code and scoped settings: native files, viewer downloads, write-only vault
     const updated = await api(page, path);
     expect(updated.etag).not.toBe(metadata.etag);
     expect(JSON.stringify(updated.data)).not.toContain(rotated);
+    await row.getByRole('button', { name: `Actions for ${name}`, exact: true }).click();
     await row.getByRole('button', { name: 'Remove', exact: true }).click();
     const remove = page.getByRole('dialog', { name: `Remove ${name}?` });
-    await remove.getByRole('textbox').fill(name);
     const deleting = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === path &&
@@ -946,8 +948,8 @@ test('workflow and billing: real compiled plan, queued-run cancellation, provena
       name: 'Preview execution plan',
       exact: true,
     });
-    await dialog.getByLabel(/^Source commit/).fill(fixture.repository.commit);
-    await dialog.getByLabel(/^Source ref/).fill('refs/heads/main');
+    await dialog.getByRole('combobox', { name: 'Run from', exact: true }).selectOption('refs/heads/main');
+    await expect(dialog.getByLabel('Full commit ID', { exact: true })).toHaveValue(fixture.repository.commit);
     const creating = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname ===
@@ -1027,8 +1029,8 @@ test('workflow and billing: real compiled plan, queued-run cancellation, provena
       name: 'Run workflow',
       exact: true,
     });
-    await dialog.getByLabel(/^Source commit/).fill(fixture.repository.commit);
-    await dialog.getByLabel(/^Source ref/).fill('refs/heads/main');
+    await dialog.getByRole('combobox', { name: 'Run from', exact: true }).selectOption('refs/heads/main');
+    await expect(dialog.getByLabel('Full commit ID', { exact: true })).toHaveValue(fixture.repository.commit);
     const dispatched = page.waitForResponse(
       (response) =>
         new URL(response.url()).pathname === `/v1/repos/${repoId}/runs` &&
@@ -1095,6 +1097,9 @@ test('workflow and billing: real compiled plan, queued-run cancellation, provena
   });
 
   await test.step('load selected-job context and execute the copied CLI command with a real isolation file', async () => {
+    const requested = page.waitForResponse(
+      response => new URL(response.url()).pathname === `/v1/runs/${runId}/reproduce` && response.request().method() === 'GET',
+    );
     await page
       .getByRole('button', { name: 'Reproduce locally', exact: true })
       .click();
@@ -1109,24 +1114,18 @@ test('workflow and billing: real compiled plan, queued-run cancellation, provena
         exact: true,
       }),
     ).not.toBeVisible();
+    await dialog.getByRole('button', { name: 'Use existing file', exact: true }).click();
     await dialog
-      .getByLabel('Choose existing isolation JSON', { exact: true })
+      .getByLabel('Configuration file', { exact: true })
       .setInputFiles(fixture.reproduction.isolation_path);
     await dialog
-      .getByLabel(/^Existing isolation configuration path/)
+      .getByLabel(/^Configuration path/)
       .fill(fixture.reproduction.isolation_path);
+    await dialog.getByText('Local checkout options', { exact: true }).click();
     await dialog
       .getByLabel(/^Local checkout path/)
       .fill(fixture.reproduction.source_path);
     await dialog.getByLabel(/^Command shell/).selectOption('posix');
-    const requested = page.waitForResponse(
-      (response) =>
-        new URL(response.url()).pathname === `/v1/runs/${runId}/reproduce` &&
-        response.request().method() === 'GET',
-    );
-    await dialog
-      .getByRole('button', { name: 'Load reproduction context', exact: true })
-      .click();
     const response = await requested;
     expect(response.status(), await response.text()).toBe(200);
     const url = new URL(response.url());
@@ -1137,6 +1136,7 @@ test('workflow and billing: real compiled plan, queued-run cancellation, provena
     expect(
       object(reproduction.variables)[fixture.reproduction.variable_name],
     ).toBe(fixture.reproduction.variable_value);
+    await dialog.getByText('Recorded inputs and provenance', { exact: true }).click();
     const evidence = dialog.getByRole('region', {
       name: 'Reproduction context for verify',
       exact: true,
@@ -1296,7 +1296,8 @@ test('workflow and billing: real compiled plan, queued-run cancellation, provena
       .click();
     const dialog = page.getByRole('dialog', { name: 'Create budget' });
     await dialog.getByLabel(/^Scope \*/).selectOption('repository');
-    await dialog.getByRole('combobox', { name: 'Repository', exact: true }).selectOption(repoId);
+    await dialog.getByRole('button', { name: /^Repository:/ }).click();
+    await dialog.getByRole('button', { name: new RegExp(fixture.repository.name) }).click();
     await dialog.getByLabel(/^Limit \(USD\)/).fill('0.025');
     await dialog
       .getByRole('button', { name: 'Create budget', exact: true })

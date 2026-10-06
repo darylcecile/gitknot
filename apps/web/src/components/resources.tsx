@@ -30,7 +30,8 @@ import {
   Status,
   Time,
 } from "./resource-ui.tsx";
-import { Notice } from "./ui.tsx";
+import { Badge, Metadata, Notice, Value } from "./ui.tsx";
+import { ActionMenu } from "./popover.tsx";
 
 export type CollectionSpec = {
   title: string;
@@ -79,6 +80,7 @@ export function ResourceCollection({
           <CreateResource
             path={path}
             title={`Create ${spec.singular}`}
+            variant="secondary"
             fields={spec.fields}
             sensitive={spec.sensitive}
             transform={spec.createTransform}
@@ -152,9 +154,11 @@ export function ResourceCollection({
                         <Time value={item[column]} />
                       ) : column === "state" || column === "status" ? (
                         <Status value={item[column]} />
+                      ) : Array.isArray(item[column]) ? (
+                        <span className="muted">{item[column].length} {column === "capabilities" ? "permissions" : column === "repository_ids" ? "repositories" : humanize(column.replace(/_ids$/, "s"))}</span>
                       ) : typeof item[column] === "object" ? (
                         <span className="muted truncate">
-                          {JSON.stringify(item[column])}
+                          <Value value={item[column]} />
                         </span>
                       ) : (
                         <span className={column.endsWith("_id") ? "mono" : ""}>
@@ -171,7 +175,8 @@ export function ResourceCollection({
                     </td>
                   ))}
                   <td>
-                    <div className="row-actions">
+                    {item.built_in === true || item.mandatory === true ? <Badge>{item.built_in ? "Built-in" : "Inherited"}</Badge>
+                      : (actions || spec.edit !== false || spec.allowDelete !== false) && <ActionMenu label={`Actions for ${displayName(item)}`}>
                       {actions?.(item, refresh)}
                       {spec.edit !== false && (
                         <EditResource
@@ -192,11 +197,10 @@ export function ResourceCollection({
                           description="This action removes the resource and its active access. Existing history remains subject to retention."
                           danger
                           method="DELETE"
-                          confirmText={displayName(item)}
                           onDone={refresh}
                         />
                       )}
-                    </div>
+                    </ActionMenu>}
                   </td>
                 </tr>
               ))}
@@ -218,7 +222,10 @@ export function ResourceCollection({
         title={selected ? displayName(selected) : "Details"}
       >
         <div className="modal-body">
-          <JsonDetails title="Resource details" value={selected} />
+          {selected && <Metadata values={Object.fromEntries(columns.map(column => [column, selected[column]]))} />}
+          {selected?.config !== undefined && <Metadata values={record(selected.config)} />}
+          {selected?.policy !== undefined && <Metadata values={record(selected.policy)} />}
+          <JsonDetails title="Technical details" value={selected} />
         </div>
       </Modal>
     </Panel>

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CapabilitiesEditor } from "../components/editors/permissions.tsx";
 import { Link, NavLink, useParams } from "react-router";
 import { KeyRound, ShieldCheck } from "lucide-react";
 import { useAuth } from "../auth.tsx";
@@ -104,8 +105,9 @@ export function PersonalSettingsPage() {
             nameField,
             {
               name: "capabilities",
-              label: "Capabilities",
-              type: "csv",
+              label: "Permissions",
+              type: "custom",
+              editor: CapabilitiesEditor,
               required: true,
             },
             {

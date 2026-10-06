@@ -174,9 +174,6 @@ export function MarkdownEditor({
             </button>
           ))}
         </div>
-        <span className="editor-format-note">
-          Markdown is the source of truth
-        </span>
       </div>
       {mode === "source" ? (
         <SourceEditor id={id} value={value} onChange={onChange} label={label} />
@@ -191,10 +188,6 @@ export function MarkdownEditor({
       ) : (
         <RichEditor id={id} value={value} onChange={onChange} label={label} />
       )}
-      <div className="editor-footnote">
-        CommonMark + tables, tasks, code, and diagrams. Extended source blocks
-        are preserved verbatim.
-      </div>
     </div>
   );
 }

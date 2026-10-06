@@ -5,6 +5,7 @@ import { query } from "../api/endpoints.ts";
 import { useResource } from "../api/hooks.ts";
 import { array, record, text, type Entity } from "../api/types.ts";
 import { Fields, type Field } from "../components/forms.tsx";
+import { IsolationEditor, type IsolationFile } from "../components/editors/isolation-editor.tsx";
 import {
   Button,
   CopyButton,
@@ -18,11 +19,6 @@ import {
   Panel,
 } from "../components/ui.tsx";
 
-type IsolationFile = {
-  name: string;
-  type: "oci" | "posix_user" | "windows_user";
-  image?: string;
-};
 type ReproductionChoice = {
   job: string;
   isolation_path: string;
@@ -136,15 +132,23 @@ export function ReproduceRun({
     job: "",
     isolation_path: "",
     source_path: "",
-    shell: "",
+    shell: "posix",
     disposable: false,
   });
   const [requestedJob, setRequestedJob] = useState("");
   const [isolation, setIsolation] = useState<IsolationFile | null>(null);
+  const [isolationMode, setIsolationMode] = useState("create");
   const [fileError, setFileError] = useState<Error | null>(null);
   const [inspecting, setInspecting] = useState(false);
   const generation = useRef(0);
   const fileId = useId();
+  const changeIsolationMode = (mode: string) => {
+    generation.current++;
+    setIsolationMode(mode);
+    setIsolation(null);
+    setInspecting(false);
+    setFileError(null);
+  };
   const jobs = array<Entity>(manifest?.jobs);
   const job = jobs.find((job) => job.id === choice.job);
   const context = useResource<Entity>(
@@ -197,14 +201,15 @@ export function ReproduceRun({
     },
     {
       name: "isolation_path",
-      label: "Existing isolation configuration path",
+      label: "Configuration path",
       required: true,
-      help: "Enter an absolute path, or a path relative to your CLI working directory, ending in the selected filename. Use the full home-directory path instead of ~; browsers do not expose full local paths.",
+      help: "Save or move the configuration to this path on the CLI machine. Use an absolute path or a path relative to the directory where you will run the command.",
     },
     {
       name: "source_path",
       label: "Local checkout path (optional)",
       help: "Use an existing checkout containing the pinned commit, or leave empty to fetch the authorized source through GitKnot.",
+      section: "Local checkout options",
     },
     {
       name: "shell",
@@ -230,7 +235,12 @@ export function ReproduceRun({
   return (
     <>
       <Button
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpen(true);
+          const selected = choice.job || jobs[0]?.id || "";
+          setChoice(current => ({ ...current, job: selected }));
+          setRequestedJob(selected);
+        }}
         disabled={!manifest || !jobs.length}
       >
         Reproduce locally
@@ -243,32 +253,28 @@ export function ReproduceRun({
       >
         <div className="modal-body">
           <p>
-            Choose the job and your existing isolation configuration. The CLI
-            uses your GitKnot authentication for this API origin and checks the
-            pinned tools, source, and input checksums.
+            Choose a job, prepare its run environment, and copy the command to your terminal.
           </p>
           <Fields
-            fields={fields}
+            fields={fields.filter(field => field.name === "job")}
             values={choice}
             setValues={(values) => {
               const next = values as ReproductionChoice;
-              if (next.job !== choice.job) setRequestedJob("");
+              if (next.job !== choice.job) { setRequestedJob(next.job); changeIsolationMode(isolationMode); }
               setChoice(next);
             }}
           />
-          {job && (
-            <Metadata
-              values={{
-                selected_job: job.id,
-                os: record(job.toolchain).os,
-                architecture: record(job.toolchain).arch,
-                image: record(job.toolchain).image,
-                toolchain: record(job.toolchain).fingerprint,
-              }}
-            />
-          )}
-          <div className="field">
-            <label htmlFor={fileId}>Choose existing isolation JSON</label>
+          {job && <section className="reproduction-setup">
+            <h3>Run environment</h3>
+            <div className="segmented" role="group" aria-label="Environment configuration">
+              <button type="button" aria-pressed={isolationMode === "create"} onClick={() => changeIsolationMode("create")}>Create configuration</button>
+              <button type="button" aria-pressed={isolationMode === "existing"} onClick={() => changeIsolationMode("existing")}>Use existing file</button>
+            </div>
+            {isolationMode === "create" ? <IsolationEditor key={job.id} job={responseJob || job} onPrepared={file => {
+              setIsolation(file); setFileError(null);
+              if (file) setChoice(current => ({ ...current, isolation_path: current.isolation_path ? current.isolation_path.replace(/[^/\\]+$/, file.name) : `./${file.name}` }));
+            }} /> : <div className="field">
+            <label htmlFor={fileId}>Configuration file</label>
             <input
               id={fileId}
               type="file"
@@ -315,7 +321,8 @@ export function ReproduceRun({
               </Link>
               .
             </p>
-          </div>
+          </div>}
+          </section>}
           {inspecting && (
             <Loading label="Inspecting isolation configuration" rows={1} />
           )}
@@ -327,18 +334,8 @@ export function ReproduceRun({
           )}
           <ErrorNotice error={fileError} />
           {mismatch && <Notice tone="warning">{mismatch}</Notice>}
-          <div className="form-actions">
-            <Button
-              busy={context.loading}
-              disabled={!job}
-              onClick={() => {
-                setRequestedJob(choice.job);
-                if (requestedJob === choice.job) context.refresh();
-              }}
-            >
-              Load reproduction context
-            </Button>
-          </div>
+          {isolation && <Fields fields={fields.filter(field => field.name !== "job")} values={choice} setValues={values => setChoice(values as ReproductionChoice)} />}
+          {context.loading && <Loading label="Loading reproduction context…" rows={1} />}
           <ErrorNotice error={context.error} retry={context.refresh} />
           {context.data && !matched && (
             <Notice tone="warning">
@@ -347,7 +344,7 @@ export function ReproduceRun({
             </Notice>
           )}
           {matched && !context.error && (
-            <ReproductionEvidence job={responseJob!} data={context.data!} />
+            <details className="detail-disclosure"><summary>Recorded inputs and provenance</summary><ReproductionEvidence job={responseJob!} data={context.data!} /></details>
           )}
           {ready ? (
             <div className="reproduction-command">
@@ -366,9 +363,7 @@ export function ReproduceRun({
             </div>
           ) : (
             <p className="field-help">
-              Select a job, load its context, and choose a matching isolation
-              file, its existing path, and a command shell to prepare the
-              command.
+              Prepare the run environment and choose where you will save its configuration to generate the command.
             </p>
           )}
         </div>

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Link,
   NavLink,
@@ -58,6 +58,7 @@ import { SubscriptionButton } from "../components/subscription.tsx";
 import { useRepository } from "./repositories.tsx";
 import { DiffViewer } from "./diff.tsx";
 import { Attribution, useAttribution } from "../components/attribution.tsx";
+import { HeadRevisionEditor, RevisionEditor, validateBranchRevision, validateRevision } from "../components/editors/revision-picker.tsx";
 
 export type CollaborationKind = "issues" | "pulls" | "discussions" | "tasks";
 const kinds = {
@@ -110,14 +111,14 @@ function itemFields(kind: CollaborationKind, creating = false): Field[] {
     fields.push(
       {
         name: "assignee_ids",
-        label: "Assignee IDs",
+        label: "Assignees",
         type: "csv",
         createOnly: true,
       },
-      { name: "label_ids", label: "Label IDs", type: "csv", createOnly: true },
-      { name: "milestone_id", label: "Milestone ID" },
-      { name: "status_id", label: "Typed status ID" },
-      { name: "template_id", label: "Template ID", createOnly: true },
+      { name: "label_ids", label: "Labels", type: "csv", createOnly: true },
+      { name: "milestone_id", label: "Milestone" },
+      { name: "status_id", label: "Status" },
+      { name: "template_id", label: "Template", createOnly: true },
       {
         name: "priority",
         label: "Priority",
@@ -137,58 +138,63 @@ function itemFields(kind: CollaborationKind, creating = false): Field[] {
         createOnly: true,
       },
       {
-        name: "base_ref",
+        name: "base",
         label: "Base branch",
-        required: creating,
-        createOnly: true,
-        help: "Full ref, such as refs/heads/main.",
-      },
-      {
-        name: "head_ref",
-        label: "Head branch",
-        required: creating,
-        createOnly: true,
-      },
-      { name: "head_repo_id", label: "Head repository ID", createOnly: true },
-      {
-        name: "base_oid",
-        label: "Exact base commit",
+        type: "custom",
+        editor: RevisionEditor,
+        validate: validateBranchRevision,
         required: creating,
         createOnly: true,
       },
       {
-        name: "head_oid",
-        label: "Exact head commit",
+        name: "head",
+        label: "Compare branch",
+        type: "custom",
+        editor: HeadRevisionEditor,
+        validate: validateBranchRevision,
         required: creating,
         createOnly: true,
       },
-      { name: "task_id", label: "Originating task ID", createOnly: true },
-      { name: "milestone_id", label: "Milestone ID" },
+      { name: "head_repo_id", label: "Source repository", createOnly: true, section: "Source and linked work" },
+      { name: "task_id", label: "Originating task", createOnly: true, section: "Source and linked work" },
+      { name: "milestone_id", label: "Milestone", section: "Source and linked work" },
     );
   if (kind === "discussions")
-    fields.push({ name: "category_id", label: "Category ID", required: true });
+    fields.push({ name: "category_id", label: "Category", required: true });
   if (kind === "tasks")
     fields.push(
-      { name: "issue_id", label: "Linked issue ID" },
+      { name: "issue_id", label: "Linked issue", section: "Related work" },
       {
         name: "accountable_user_id",
-        label: "Accountable person ID",
+        label: "Accountable person",
         required: true,
       },
       {
         name: "contributor_ids",
-        label: "Contributor IDs",
+        label: "Contributors",
         type: "csv",
         createOnly: true,
+        section: "Related work",
       },
       {
-        name: "base_oid",
-        label: "Base commit",
+        name: "base",
+        label: "Start from",
+        type: "custom",
+        editor: RevisionEditor,
+        validate: validateRevision,
         required: true,
         createOnly: true,
       },
     );
-  return fields;
+  return fields.map(field => kind === "issues" && !["title", "body", "state"].includes(field.name)
+    ? { ...field, section: "Assignees, labels, and options" } : field);
+}
+
+function creationBody(kind: CollaborationKind, values: Record<string, unknown>) {
+  const { base, head, ...body } = values;
+  if (kind === "pulls") return { ...body, base_ref: record(base).ref, base_oid: record(base).commit_oid,
+    head_ref: record(head).ref, head_oid: record(head).commit_oid };
+  return kind === "tasks" ? { ...body, base_oid: record(base).commit_oid } : values;
 }
 
 export function CollaborationList({ kind }: { kind: CollaborationKind }) {
@@ -197,25 +203,16 @@ export function CollaborationList({ kind }: { kind: CollaborationKind }) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [input, setInput] = useState(params.get("q") || "");
+  useEffect(() => setInput(params.get("q") || ""), [params.get("q")]);
   const state = params.get("state") || (kind === "tasks" ? "active" : "open");
   const path = endpoints.repo(repo.id, kind);
-  const baseCommit = useResource<Entity>(
-    kind === "pulls" && params.get("new") === "1"
-      ? query(endpoints.repo(repo.id, "commits"), {
-          ref: repo.default_branch,
-          limit: 1,
-        })
-      : null,
-  );
   const createFields = itemFields(kind, true).map((field) => ({
     ...field,
     default:
-      params.get(field.name) ||
-      (field.name === "base_ref"
-        ? `refs/heads/${repo.default_branch.replace(/^refs\/heads\//, "")}`
-        : field.name === "base_oid" && baseCommit.data
-          ? baseCommit.data.revision
-          : field.default),
+      ["base", "head"].includes(field.name) ? {
+        ref: params.get(`${field.name}_ref`) || (field.name === "base" ? `refs/heads/${repo.default_branch.replace(/^refs\/heads\//, "")}` : ""),
+        commit_oid: params.get(`${field.name}_oid`) || "",
+      } : params.get(field.name) || field.default,
   }));
   const items = useCollection<Entity>(
     query(path, {
@@ -231,22 +228,18 @@ export function CollaborationList({ kind }: { kind: CollaborationKind }) {
         title={spec.title}
         description={spec.description}
         actions={
-          baseCommit.loading ? (
-            <span role="status">Resolving base revision…</span>
-          ) : (
             <CreateResource
               path={path}
               title={`New ${spec.singular}`}
               fields={createFields}
               initiallyOpen={params.get("new") === "1"}
+              transform={body => creationBody(kind, body)}
               onSaved={(result) =>
                 navigate(repoLink(repo.id, `${kind}/${result.data.id}`))
               }
             />
-          )
         }
       />
-      <ErrorNotice error={baseCommit.error} retry={baseCommit.refresh} />
       <div className="filter-bar">
         <div className="segmented">
           {(kind === "tasks"
@@ -369,10 +362,13 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
   const { itemId = "" } = useParams();
   const [params, setParams] = useSearchParams();
   const tab = params.get("tab") || "conversation";
+  const tabs = kind === "pulls" ? ["conversation", "changes", "patches", "checks", "dependencies", "activity", "history"]
+    : kind === "issues" ? ["conversation", "related", "activity", "history"]
+      : kind === "tasks" ? ["conversation", "coordination", "activity", "history"] : ["conversation", "activity", "history"];
   const path = endpoints.item(repo.id, kind, itemId);
   const item = useResource<Entity>(path);
   const comments = useCollection<Entity>(`${path}/comments`);
-  const activity = useCollection<Entity>(`${path}/events`);
+  const activity = useCollection<Entity>(tab === "activity" ? `${path}/events` : null);
   const navigate = useNavigate();
   const [passage, setPassage] = useState<{
     quote: string;
@@ -423,14 +419,14 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
           </>
         )}
       </div>
-      {kind === "pulls" && (
-        <nav className="tabs" aria-label="Pull request views">
-          {["conversation", "changes", "patches", "checks", "dependencies"].map(
+        <nav className="tabs" aria-label={`${kinds[kind].singular} views`}>
+          {tabs.map(
             (value) => (
               <button
                 key={value}
                 type="button"
                 className={tab === value ? "active" : ""}
+                aria-current={tab === value ? "page" : undefined}
                 onClick={() => {
                   const next = new URLSearchParams(params);
                   next.set("tab", value);
@@ -442,15 +438,14 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
             ),
           )}
         </nav>
-      )}
-      {kind === "pulls" && tab !== "conversation" ? (
+      {kind === "pulls" && ["changes", "patches", "checks", "dependencies"].includes(tab) ? (
         <PullReviewContent
           tab={tab}
           path={path}
           item={data}
           refresh={refresh}
         />
-      ) : (
+      ) : tab === "conversation" ? (
         <div className="detail-grid">
           <div className="detail-main">
             <Panel title="Description">
@@ -478,7 +473,7 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
                 </Button>
               </Notice>
             )}
-            <Panel title="Conversation">
+            {(comments.loading || comments.error || comments.items.length > 0) && <Panel title="Conversation">
               <ErrorNotice error={comments.error} retry={comments.refresh} />
               {comments.loading && !comments.data ? (
                 <Loading rows={2} />
@@ -510,7 +505,7 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
                   </div>
                 )}
               <Pagination {...comments} />
-            </Panel>
+            </Panel>}
             <Panel title="Add a comment">
               <ResourceForm
                 key={`comment-${comments.items.length}`}
@@ -545,33 +540,16 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
                 }}
               />
             </Panel>
-            <AttachmentPanel path={path} />
-            <Panel title="Activity history">
-              <ErrorNotice error={activity.error} retry={activity.refresh} />
-              {activity.items.map((event) => (
-                <div className="timeline-row" key={event.id}>
-                  <span className="timeline-dot" />
-                  <div>
-                    {humanize(event.type || event.event_type)}{" "}
-                    <span className="muted">
-                      <Attribution value={event} />
-                    </span>
-                    <Time value={event.created_at || event.occurred_at} />
-                    <JsonDetails value={event} />
-                  </div>
-                </div>
-              ))}
-              <Pagination {...activity} />
-            </Panel>
+            <details className="detail-disclosure"><summary>Attachments</summary><AttachmentPanel path={path} /></details>
           </div>
           <aside className="detail-sidebar">
             <Panel title="Details">
               <div className="panel-body">
                 <Metadata
                   values={{
-                    assignees: data.assignee_ids || data.assignees,
+                    assignees: data.assignees || data.assignee_ids,
                     labels: data.labels || data.label_ids,
-                    milestone: data.milestone_id,
+                    milestone: data.milestone || data.milestone_id,
                     dependencies: data.dependency_ids,
                     duplicate_of: data.duplicate_of,
                     category: data.category_id,
@@ -579,7 +557,6 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
                     base_commit: data.base_oid,
                     contributors: data.contributor_ids,
                     task: data.task_id,
-                    revision: data.revision,
                   }}
                 />
               </div>
@@ -774,8 +751,17 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
             </Panel>
           </aside>
         </div>
-      )}
-      {kind === "tasks" && (
+      ) : null}
+      {tab === "activity" && <Panel title="Activity history">
+        <ErrorNotice error={activity.error} retry={activity.refresh} />
+        {activity.loading && !activity.data ? <Loading /> : activity.items.map(event => <div className="timeline-row" key={event.id}>
+          <span className="timeline-dot" /><div>{humanize(event.type || event.event_type)} <span className="muted"><Attribution value={event} /></span>
+            <Time value={event.created_at || event.occurred_at} /><JsonDetails value={event} /></div>
+        </div>)}
+        {!activity.loading && !activity.error && !activity.items.length && <Empty title="No activity yet" />}
+        <Pagination {...activity} />
+      </Panel>}
+      {kind === "tasks" && tab === "coordination" && (
         <>
           <Panel title="Decision">
             <div className="panel-body">
@@ -789,7 +775,7 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
           <TaskCoordination path={path} />
         </>
       )}
-      {kind === "issues" && (
+      {kind === "issues" && tab === "related" && (
         <div className="stack">
           <ResourceCollection
             path={`${path}/dependencies`}
@@ -828,7 +814,7 @@ export function CollaborationDetail({ kind }: { kind: CollaborationKind }) {
           />
         </div>
       )}
-      <DocumentHistory path={path} snapshot={item.snapshot} refresh={refresh} />
+      {tab === "history" && <DocumentHistory path={path} snapshot={item.snapshot} refresh={refresh} />}
     </>
   );
 }

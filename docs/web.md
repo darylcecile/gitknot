@@ -19,7 +19,7 @@ Exact dependency versions are in `apps/web/package.json`: React/React DOM 19.3.0
 
 `src/api/endpoints.ts` holds product endpoint names; `src/api/adapter.ts` translates module-specific routes/representations. `src/api/client.ts` is the only JSON mutation transport.
 
-Relationship fields use the shared `ReferencePicker`: people, labels, milestones, statuses, templates, repositories/accounts, linked work, roles and environments are selected by readable names. Multi-selection uses checkboxes; search and pagination consume the existing authorized collections. Stored IDs remain request values, and clearing a selection preserves the API's explicit empty-list behavior.
+Relationship fields use the shared `ReferencePicker`: people, labels, milestones, statuses, templates, repositories/accounts, linked work, roles and environments are selected by readable names in compact, searchable popovers. Multi-selection uses checkboxes; search and pagination consume the existing authorized collections. Stored IDs remain request values, and clearing a selection preserves the API's explicit empty-list behavior. Dedicated controlled editors in `src/components/editors/` replace JSON configuration input; `field-values.ts` keeps typed serialization and legacy tab-draft decoding separate from rendering. See [interface design](interface-design.md) for the visual and interaction system.
 
 - Cookies always use `credentials: include`; unsafe requests send the identity contract's `X-GitKnot-CSRF: 1`. Session state comes from `/v1/me`; authentication never stores bearer credentials in local storage.
 - Single resources are plain JSON; collections consume `{items,next_cursor}` without inventing results or totals. Loading, failed initial loads, failed subsequent pages, empty results, and unknown server states are distinct.
@@ -69,9 +69,9 @@ Some public APIs expose collection reads rather than individual reads. The adapt
 | `/docs`, `/docs/cli`, `/docs/workflows`, `/docs/api` | Public getting-started, command-line, workflow, and REST guides; canonical-origin OpenAPI link |
 | `/support` | Public request-ID troubleshooting, access recovery, operation/workflow diagnostics and support context |
 
-All navigation is client-routeable with an explicit not-found view. Side navigation becomes a native modal drawer on narrow screens; repository/settings navigation scrolls rather than overflowing the viewport. Dialogs use native focus trapping/Escape behavior. The application includes a skip link, visible keyboard focus, text labels, reduced-motion and forced-colors treatments.
+All navigation is client-routeable with an explicit not-found view. A shared header contains Overview, Repositories, Inbox, search, and the account menu. Primary navigation becomes a native modal drawer on narrow screens; repository tabs scroll within their container and grouped settings navigation becomes a select. Dialogs use native focus trapping/Escape behavior. The application includes a skip link, visible keyboard focus, text labels, reduced-motion and forced-colors treatments.
 
-The workspace picker uses a disabled “Choose a workspace” prompt and labels each actual account as `Personal · Name (@slug)` or `Organization · Name (@slug)`. Values remain immutable account IDs. Investigation of the full E2E trace found one personal account and an empty organization list; the former repeated “E2E owner” label came from the empty-value prompt, not duplicate account data. Same-named legitimate accounts remain separate choices, distinguished by type and slug.
+Account navigation lives in the account menu. “Go to account” uses a disabled “Choose an account…” prompt and labels each actual account by name and unique slug. Values remain immutable account IDs. Account administration is separate from the everyday project navigation.
 
 ### Public documentation
 

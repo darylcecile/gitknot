@@ -5,6 +5,7 @@ import {
   ArrowRight,
   CheckCheck,
   CircleDot,
+  FolderGit2,
   GitPullRequest,
   Inbox,
   Search,
@@ -12,7 +13,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../auth.tsx";
 import { endpoints, query, repoLink } from "../api/endpoints.ts";
-import { useCollection, useResource } from "../api/hooks.ts";
+import { useCollection, useMutation, useResource } from "../api/hooks.ts";
 import {
   array,
   displayName,
@@ -47,8 +48,11 @@ import {
 } from "../components/ui.tsx";
 import { Markdown } from "../components/markdown/render.tsx";
 import { SubscriptionButton } from "../components/subscription.tsx";
-import { revisionSnapshot } from "../api/client.ts";
+import { request, requireEtag, revisionSnapshot } from "../api/client.ts";
+import { ActionMenu } from "../components/popover.tsx";
 import { useAttribution } from "../components/attribution.tsx";
+import { SearchFiltersEditor } from "../components/editors/policy-editors.tsx";
+import { ScanRepositoriesEditor, validateScanRepositories } from "../components/editors/revision-picker.tsx";
 
 export function activityLink(item: Entity): string | null {
   const repo = text(item.repo_id || item.repository_id);
@@ -136,8 +140,8 @@ function ActivityRow({ item }: { item: Entity }) {
 }
 
 export function HomePage() {
-  const { session } = useAuth();
-  const [filter, setFilter] = useState("");
+  const [params, setParams] = useSearchParams();
+  const filter = params.get("activity") || "";
   const feed = useCollection<Entity>(
     query(endpoints.feed, { type: filter, limit: 20 }),
   );
@@ -148,18 +152,27 @@ export function HomePage() {
   return (
     <>
       <PageHeader
-        eyebrow="Your workspace"
-        title="A little more connected."
-        description={`Welcome${session?.user.display_name ? `, ${session.user.display_name.split(" ")[0]}` : " back"}. Here’s where the work is moving.`}
+        title="Overview"
+        description="Pick up where you left off."
         actions={
           <Link className="button button-primary" to="/repos/new">
             New repository
-            <ArrowRight size={16} />
           </Link>
         }
       />
       <div className="dashboard-grid">
         <div className="dashboard-main">
+          <Panel title="Your repositories" actions={<Link to="/repos">View all</Link>}>
+            <ErrorNotice error={repos.error} retry={repos.refresh} />
+            {repos.loading && !repos.data ? <Loading rows={3} /> : repos.items.length ? repos.items.map(repo => (
+              <Link className="compact-repo" key={repo.id} to={repoLink(repo.id)}>
+                <FolderGit2 size={18} aria-hidden="true" />
+                <div><strong>{repo.owner_slug ? `${repo.owner_slug} / ` : ""}{repo.name}</strong><span>{repo.description || repo.default_branch}</span></div>
+                <Badge>{repo.visibility}</Badge>
+              </Link>
+            )) : !repos.error && <Empty title="Create your first repository" description="Bring an existing project or start with a new one."
+              action={<Link to="/repos/import">Import a repository</Link>} />}
+          </Panel>
           <Panel
             title={
               <>
@@ -167,12 +180,11 @@ export function HomePage() {
                 Activity
               </>
             }
-            description="A chronological view of your collaboration."
             actions={
               <select
                 aria-label="Filter activity"
                 value={filter}
-                onChange={(event) => setFilter(event.target.value)}
+                onChange={event => { const next = new URLSearchParams(params); next.set("activity", event.target.value); setParams(next); }}
               >
                 <option value="">All activity</option>
                 <option value="issue">Issues</option>
@@ -192,12 +204,10 @@ export function HomePage() {
             ) : (
               !feed.error && (
                 <Empty
-                  title="Your next chapter starts here"
+                   title="No recent activity"
                   description="Activity from the people and repositories you follow will appear here."
                   action={
-                    <Link className="button button-secondary" to="/repos">
-                      Explore repositories
-                    </Link>
+                      <Link to="/repos">Browse repositories</Link>
                   }
                 />
               )
@@ -243,56 +253,12 @@ export function HomePage() {
                   <CheckCheck size={25} />
                   <strong>You’re all caught up</strong>
                   <p>
-                    Outstanding decisions will stay here until you resolve them.
+                      New mentions and review requests will appear here.
                   </p>
                 </div>
               )
             )}
           </Panel>
-          <Panel
-            title="Your repositories"
-            actions={<Link to="/repos">View all</Link>}
-          >
-            <ErrorNotice error={repos.error} retry={repos.refresh} />
-            {repos.loading && !repos.data ? (
-              <Loading rows={2} />
-            ) : repos.items.length ? (
-              repos.items.map((repo) => (
-                <Link
-                  className="compact-repo"
-                  key={repo.id}
-                  to={repoLink(repo.id)}
-                >
-                  <span className="repo-letter" aria-hidden="true">
-                    {repo.name.slice(0, 1).toUpperCase()}
-                  </span>
-                  <div>
-                    <strong>{repo.name}</strong>
-                    <span>{repo.description || repo.visibility}</span>
-                  </div>
-                  <ArrowRight size={15} />
-                </Link>
-              ))
-            ) : (
-              !repos.error && (
-                <Empty
-                  title="A home for your next project"
-                  action={<Link to="/repos/new">Create a repository</Link>}
-                />
-              )
-            )}
-          </Panel>
-          <div className="workspace-note">
-            <span className="eyebrow">Work with confidence</span>
-            <h3>Every change has context.</h3>
-            <p>
-              Connect a task, open a pull request, and keep the decision with
-              the code.
-            </p>
-            <Link to="/help">
-              Find your way around <ArrowRight size={14} />
-            </Link>
-          </div>
         </aside>
       </div>
     </>
@@ -305,12 +271,25 @@ export function InboxPage() {
   const inbox = useCollection<Entity>(
     query(endpoints.inbox, { state, reason: params.get("reason") }),
   );
+  const mutation = useMutation();
+  const [reading, setReading] = useState("");
+  const markRead = async (item: Entity) => {
+    if (reading) return;
+    setReading(item.id);
+    try {
+      const path = `${endpoints.inbox}/${item.id}`;
+      const current = await request<Entity>(path);
+      const result = await mutation.run(path, { method: "PATCH", etag: requireEtag(current), body: { read: true } });
+      if (result) inbox.refresh();
+    } catch (cause) {
+      mutation.setError(cause instanceof Error ? cause : new Error("Could not mark this notification as read."));
+    } finally { setReading(""); }
+  };
   return (
     <>
       <PageHeader
-        eyebrow="Your work"
         title="Inbox"
-        description="Activity tells you what happened. Your inbox keeps track of what needs a decision."
+        description="Mentions, review requests, and work that needs your attention."
         actions={
           <Link
             className="button button-secondary"
@@ -351,6 +330,7 @@ export function InboxPage() {
       </div>
       <Panel>
         <ErrorNotice error={inbox.error} retry={inbox.refresh} />
+        <ErrorNotice error={mutation.error} />
         {inbox.loading && !inbox.data ? (
           <Loading />
         ) : inbox.items.length ? (
@@ -380,14 +360,9 @@ export function InboxPage() {
               </div>
               <div className="row-actions">
                 {!item.read_at && (
-                  <ActionButton
-                    path={`${endpoints.inbox}/${item.id}`}
-                    method="PATCH"
-                    label="Mark read"
-                    body={{ read: true }}
-                    onDone={inbox.refresh}
-                  />
+                   <Button busy={reading === item.id} onClick={() => void markRead(item)}>Mark read</Button>
                 )}
+                <ActionMenu label="Notification actions">
                 {item.state !== "completed" && (
                   <>
                     {item.reason === "mention" ? (
@@ -428,6 +403,7 @@ export function InboxPage() {
                   itemId={text(item.item_id)}
                   onSaved={inbox.refresh}
                 />
+                </ActionMenu>
               </div>
             </article>
           ))
@@ -452,12 +428,15 @@ export function SearchPage() {
   const { session } = useAuth();
   const saved = useCollection<Entity>(session ? endpoints.savedSearches : null);
   const [input, setInput] = useState(q);
+  useEffect(() => setInput(q), [q]);
   const search = useCollection<Entity>(
     q && type !== "code"
       ? query(endpoints.search, {
           q,
           type: params.get("type"),
           repo_id: params.get("repo_id"),
+          repo_ids: params.get("repo_ids"),
+          state: params.get("state"),
           ref: params.get("ref"),
         })
       : null,
@@ -467,9 +446,8 @@ export function SearchPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Across your workspace"
-        title="Find the thread."
-        description="Search code, issues, changes, and conversations with visible coverage."
+        title="Search"
+        description="Find code, issues, pull requests, and conversations."
       />
       <form
         className="search-form"
@@ -487,7 +465,6 @@ export function SearchPage() {
           value={input}
           onChange={(event) => setInput(event.target.value)}
           placeholder="Search your workspace"
-          autoFocus
         />
         <Button type="submit" variant="primary">
           Search
@@ -516,7 +493,7 @@ export function SearchPage() {
                 setParams(next);
               }}
             >
-              {type || "All"}
+              {type === "pulls" ? "Pull requests" : type || "All"}
             </button>
           ))}
         </div>
@@ -534,6 +511,8 @@ export function SearchPage() {
               repo_id: params.get("repo_id") || null,
               filters: {
                 query: body.query,
+                ...(params.get("state") ? { state: params.get("state") } : {}),
+                ...(params.get("repo_ids") ? { repo_ids: params.get("repo_ids")!.split(",").filter(Boolean) } : {}),
                 ...(type
                   ? {
                       kind: (
@@ -553,6 +532,11 @@ export function SearchPage() {
           />
         )}
       </div>
+      {(params.get("state") || params.get("repo_ids")) && <div className="filter-bar">
+        {params.get("state") && <Badge>State: {params.get("state")}</Badge>}
+        {params.get("repo_ids") && <Badge>{params.get("repo_ids")!.split(",").filter(Boolean).length} selected repositories</Badge>}
+        <Button variant="ghost" onClick={() => { const next = new URLSearchParams(params); next.delete("state"); next.delete("repo_ids"); setParams(next); }}>Clear filters</Button>
+      </div>}
       {search.data?.coverage !== undefined && (
         <div className="search-coverage">
           <Badge tone={coverage.complete === true ? "green" : "amber"}>
@@ -636,7 +620,7 @@ export function SearchPage() {
                 title={
                   q
                     ? "No matching results in this scope"
-                    : "Follow an idea anywhere"
+                    : "Search your workspace"
                 }
                 description={
                   q
@@ -649,7 +633,7 @@ export function SearchPage() {
           <Pagination {...search} />
         </Panel>
       )}
-      {session && (
+      {session && (saved.loading || saved.error || saved.items.some(item => item.surface === "search")) && (
         <Panel title="Saved searches">
           <ErrorNotice error={saved.error} retry={saved.refresh} />
           {saved.items
@@ -657,33 +641,12 @@ export function SearchPage() {
             .map((item) => (
               <div className="setting-row" key={item.id}>
                 <div>
-                  <button
+                  <Link
                     className="text-button"
-                    type="button"
-                    onClick={() => {
-                      const filters = record(item.filters);
-                      const types: Record<string, string> = {
-                        issue: "issues",
-                        pull_request: "pulls",
-                        discussion: "discussions",
-                        task: "tasks",
-                        comment: "comments",
-                      };
-                      const q = text(filters.query);
-                      setInput(q);
-                      setParams({
-                        q,
-                        ...(filters.kind
-                          ? { type: types[text(filters.kind)] || "" }
-                          : {}),
-                        ...(item.repo_id
-                          ? { repo_id: text(item.repo_id) }
-                          : {}),
-                      });
-                    }}
+                    to={savedSearchUrl(item)}
                   >
                     {displayName(item)}
-                  </button>
+                  </Link>
                   <p>{text(record(item.filters).query)}</p>
                 </div>
                 <div className="row-actions">
@@ -695,7 +658,8 @@ export function SearchPage() {
                       {
                         name: "filters",
                         label: "Search filters",
-                        type: "json",
+                        type: "custom",
+                        editor: SearchFiltersEditor,
                         required: true,
                       },
                     ]}
@@ -718,6 +682,13 @@ export function SearchPage() {
   );
 }
 
+function savedSearchUrl(item: Entity) {
+  const filters = record(item.filters);
+  const types: Record<string, string> = { issue: "issues", pull_request: "pulls", discussion: "discussions", task: "tasks", comment: "comments" };
+  return query("/search", { q: text(filters.query), type: types[text(filters.kind)], state: filters.state,
+    repo_id: item.repo_id, repo_ids: array<string>(filters.repo_ids).join(",") });
+}
+
 function CodeScanCreate({ queryText }: { queryText: string }) {
   const navigate = useNavigate();
   return (
@@ -734,14 +705,15 @@ function CodeScanCreate({ queryText }: { queryText: string }) {
         {
           name: "repositories",
           label: "Repositories and pinned commits",
-          type: "json",
+          type: "custom",
+          editor: ScanRepositoriesEditor,
+          validate: validateScanRepositories,
           default: [],
           required: true,
-          help: "List objects with repo_id and commit_oid. Every repository is scanned at its exact immutable commit.",
         },
-        { name: "case_sensitive", label: "Case sensitive", type: "checkbox" },
-        { name: "include_globs", label: "Include paths", type: "csv" },
-        { name: "exclude_globs", label: "Exclude paths", type: "csv" },
+        { name: "case_sensitive", label: "Case sensitive", type: "checkbox", section: "Scan options" },
+        { name: "include_globs", label: "Include paths", type: "csv", section: "Scan options" },
+        { name: "exclude_globs", label: "Exclude paths", type: "csv", section: "Scan options" },
         {
           name: "retention_days",
           label: "Result retention (days)",
@@ -750,8 +722,10 @@ function CodeScanCreate({ queryText }: { queryText: string }) {
           max: 7,
           default: 1,
           required: true,
+          section: "Scan options",
         },
       ]}
+      transform={body => ({ ...body, repositories: array<Record<string, unknown>>(body.repositories).map(({ repo_id, commit_oid }) => ({ repo_id, commit_oid })) })}
       onSaved={(result) => navigate(`/search/scans/${result.data.id}`)}
     />
   );
@@ -806,6 +780,7 @@ export function SearchScanPage() {
   const exclusions = useCollection<Entity>(
     `${endpoints.scans}/${encodeURIComponent(scanId)}/exclusions`,
   );
+  const active = !["completed", "failed", "cancelled"].includes(text(scan.data?.state));
   useEffect(() => {
     if (["completed", "failed", "cancelled"].includes(text(scan.data?.state))) {
       results.refresh();
@@ -815,8 +790,9 @@ export function SearchScanPage() {
   return (
     <>
       <PageHeader
-        title="Complete search scan"
-        description="Results are tied to the scanned repository revisions."
+        eyebrow={<Link to="/search?type=code">Code search</Link>}
+        title="Code scan"
+        description={scan.data?.query ? `Results for “${text(scan.data.query)}” at the selected revisions.` : "Loading scan details…"}
         actions={
           scan.data &&
           !["completed", "failed", "cancelled"].includes(
@@ -837,13 +813,16 @@ export function SearchScanPage() {
       {scan.data && (
         <Panel title={<Status value={scan.data.state} />}>
           <div className="panel-body">
-            <Metadata values={scan.data} />
+            {active && <p className="muted">{scan.data.state === "queued" ? "Waiting to start. Results will appear here as the scan progresses." : "Scanning the selected revisions. Results update when the scan finishes."}</p>}
+            <Metadata values={{ created_at: scan.data.created_at }} />
+            <JsonDetails title="Scan details" value={scan.data} />
             <JsonDetails title="Coverage manifest" value={scan.data.coverage} />
           </div>
         </Panel>
       )}
       <Panel title="Results">
         <ErrorNotice error={results.error} retry={results.refresh} />
+        {results.loading && !results.data && <Loading />}
         {results.items.map((item) => (
           <article className="search-result" key={item.id}>
             <Link
@@ -857,8 +836,11 @@ export function SearchScanPage() {
             <pre>{text(item.snippet || item.text || item.line_text)}</pre>
           </article>
         ))}
-        <Pagination {...results} />
+        {!results.loading && !results.error && !results.items.length && <Empty title={active ? "Waiting for results" : scan.data?.state === "completed" ? "No matching code" : "No results available"}
+          description={active ? "You can leave this page and return to the scan later." : scan.data?.state === "completed" ? "Try a different query or revision." : "This scan ended before any results were returned."} />}
+        {(results.items.length > 0 || !active) && <Pagination {...results} />}
       </Panel>
+      <details className="detail-disclosure"><summary>Excluded files</summary>
       <Panel title="Exclusions">
         <ErrorNotice error={exclusions.error} retry={exclusions.refresh} />
         {exclusions.items.map((item, index) => (
@@ -868,6 +850,7 @@ export function SearchScanPage() {
         ))}
         <Pagination {...exclusions} />
       </Panel>
+      </details>
     </>
   );
 }

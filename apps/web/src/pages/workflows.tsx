@@ -60,31 +60,41 @@ import { ResourceCollection } from "../components/resources.tsx";
 import { useRepository } from "./repositories.tsx";
 import { ReproduceRun } from "./reproduction.tsx";
 import { useAuth } from "../auth-context.ts";
+import { WorkflowInputsEditor } from "../components/editors/input-editor.tsx";
+import { RevisionEditor, validateRevision } from "../components/editors/revision-picker.tsx";
 
-const workflowFields: Field[] = [
+function definitionFields(branch: string, commit = ""): Field[] { return [
   {
     name: "path",
     label: "Workflow file path",
     required: true,
-    help: "Path to the canonical YAML definition in this repository.",
+    placeholder: ".gitknot/workflows/ci.yaml…",
   },
   {
-    name: "source_commit",
-    label: "Definition commit",
+    name: "source",
+    label: "Definition revision",
+    type: "custom",
+    editor: RevisionEditor,
+    validate: validateRevision,
+    default: { ref: `refs/heads/${branch.replace(/^refs\/heads\//, "")}`, commit_oid: commit },
     required: true,
-    help: "Approve the workflow source at an exact immutable commit.",
   },
-];
+]; }
+const definitionBody = ({ source, ...body }: Record<string, unknown>) => ({ ...body, source_commit: record(source).commit_oid });
 const runFields: Field[] = [
   {
-    name: "commit_oid",
-    label: "Source commit",
+    name: "source",
+    label: "Run from",
+    type: "custom",
+    editor: RevisionEditor,
+    default: {},
     required: true,
-    help: "The immutable full Git commit ID to execute.",
+    validate: value => validateRevision(value) || (!record(value).ref ? "Choose a source ref." : undefined),
   },
-  { name: "ref", label: "Source ref", required: true },
-  { name: "inputs", label: "Workflow inputs", type: "json", default: {} },
+  { name: "inputs", label: "Workflow inputs", type: "custom", editor: WorkflowInputsEditor, default: {}, section: "Customize inputs" },
 ];
+
+const runBody = ({ source, ...body }: Record<string, unknown>) => ({ ...body, ...record(source) });
 
 export function WorkflowsPage() {
   const { repo } = useRepository();
@@ -101,7 +111,7 @@ export function WorkflowsPage() {
     <>
       <PageHeader
         title="Workflows"
-        description="Reproducible execution. Clear requirements. Costs reserved before work begins."
+        description="Build, test, and ship your changes."
         actions={
           <>
             <Link
@@ -113,7 +123,8 @@ export function WorkflowsPage() {
             <CreateResource
               path={endpoints.repo(repo.id, "workflows")}
               title="Add workflow"
-              fields={workflowFields}
+              fields={definitionFields(repo.default_branch)}
+              transform={definitionBody}
               onSaved={workflows.refresh}
             />
           </>
@@ -258,7 +269,8 @@ export function WorkflowPage() {
             <EditResource
               path={path}
               title="Edit workflow"
-              fields={workflowFields}
+              fields={definitionFields(repo.default_branch, text(workflow.data?.source_commit))}
+              transform={definitionBody}
               onSaved={() => {
                 workflow.refresh();
                 versions.refresh();
@@ -268,7 +280,9 @@ export function WorkflowPage() {
               path={`${path}/runs`}
               snapshot={workflow.snapshot}
               label="Run workflow"
+              variant="primary"
               fields={runFields}
+              transform={runBody}
               onDone={(result) =>
                 navigate(
                   repoLink(
@@ -294,12 +308,13 @@ export function WorkflowPage() {
               }}
             />
             {workflow.data.source !== undefined && (
-              <pre className="source-preview">{text(workflow.data.source)}</pre>
+              <details className="json-details"><summary>View workflow source</summary><pre className="source-preview">{text(workflow.data.source)}</pre></details>
             )}
             <ActionButton
               path={`${path}/plan`}
               label="Preview execution plan"
               fields={runFields}
+              transform={runBody}
               onDone={(result) =>
                 navigate(repoLink(repo.id, `plans/${result.data.id}`))
               }

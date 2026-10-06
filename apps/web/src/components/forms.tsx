@@ -8,7 +8,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { Plus, Save } from "lucide-react";
+import { Check, Plus } from "lucide-react";
 import { useParams } from "react-router";
 import {
   ApiError,
@@ -35,6 +35,11 @@ import {
   Notice,
 } from "./ui.tsx";
 import { ReferencePicker, referenceFor } from "./reference-picker.tsx";
+import type { Field, FieldContext } from "./field-types.ts";
+import { FieldError, fieldValues, listValue, serializeFields, structuredValue } from "./field-values.ts";
+import { TokenInput } from "./editors/controls.tsx";
+export type { Field } from "./field-types.ts";
+export { fieldValues, serializeFields } from "./field-values.ts";
 const MarkdownEditor = lazy(async () => ({
   default: (await import("./markdown/editor.tsx")).MarkdownEditor,
 }));
@@ -42,153 +47,52 @@ const SourceEditor = lazy(async () => ({
   default: (await import("./markdown/editor.tsx")).SourceEditor,
 }));
 
-export type Field = {
-  name: string;
-  label: string;
-  type?:
-    | "text"
-    | "email"
-    | "password"
-    | "url"
-    | "number"
-    | "textarea"
-    | "markdown"
-    | "code"
-    | "select"
-    | "checkbox"
-    | "json"
-    | "csv"
-    | "datetime-local"
-    | "date";
-  required?: boolean;
-  help?: string;
-  placeholder?: string;
-  default?: unknown;
-  options?: readonly (string | { value: string; label: string })[];
-  min?: number;
-  max?: number;
-  step?: number | string;
-  readOnly?: boolean;
-  createOnly?: boolean;
-  autoComplete?: string;
-};
-
-export function fieldValues(
-  fields: Field[],
-  initial: Record<string, unknown> = {},
-): Record<string, unknown> {
-  return Object.fromEntries(
-    fields.map((field) => {
-      const value =
-        field.type === "password"
-          ? (field.default ?? "")
-          : (initial[field.name] ??
-            field.default ??
-            (field.type === "checkbox" ? false : ""));
-      if (field.type === "checkbox")
-        return [
-          field.name,
-          typeof value === "string" ? value === "true" : Boolean(value),
-        ];
-      if (
-        field.type === "datetime-local" &&
-        typeof value === "string" &&
-        value
-      ) {
-        const date = new Date(value);
-        if (!Number.isNaN(date.getTime()))
-          return [
-            field.name,
-            new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-              .toISOString()
-              .slice(0, 16),
-          ];
-      }
-      return [
-        field.name,
-        field.type === "json" && typeof value !== "string"
-          ? JSON.stringify(value, null, 2)
-          : field.type === "csv" && Array.isArray(value)
-            ? value.join(", ")
-            : value,
-      ];
-    }),
-  );
-}
-
-export function serializeFields(
-  fields: Field[],
-  values: Record<string, unknown>,
-  editing = false,
-) {
-  const result: Record<string, unknown> = {};
-  for (const field of fields) {
-    if (editing && field.createOnly) continue;
-    const value = values[field.name];
-    if (
-      field.required &&
-      field.type !== "checkbox" &&
-      (value === undefined ||
-        value === null ||
-        (Array.isArray(value) && value.length === 0) ||
-        (typeof value === "string" && !value.trim()))
-    )
-      throw new Error(`${field.label.replace(/\s+IDs?\b/g, "")} is required.`);
-    if (field.type === "password" && !value && !field.required) continue;
-    if ((value === "" || value === undefined) && !field.required && !editing)
-      continue;
-    if (field.type === "number")
-      result[field.name] = value === "" ? null : Number(value);
-    else if (field.type === "json") {
-      try {
-        result[field.name] = value === "" ? {} : JSON.parse(String(value));
-      } catch {
-        throw new Error(`${field.label} must be valid JSON.`);
-      }
-    } else if (field.type === "csv")
-      result[field.name] = Array.isArray(value) ? value.map(String) : String(value ?? "")
-        .split(",")
-        .map((item) => item.trim())
-        .filter(Boolean);
-    else if (field.type === "datetime-local")
-      result[field.name] = value ? new Date(String(value)).toISOString() : null;
-    else
-      result[field.name] =
-        editing &&
-        value === "" &&
-        (field.name.endsWith("_id") || field.name === "avatar_url")
-          ? null
-          : value;
-  }
-  return result;
-}
-
 export function FormField({
   field,
   value,
   onChange,
   disabled,
   reference,
+  context = { repoId: "", accountId: "", values: {} },
+  error,
 }: {
   field: Field;
   value: unknown;
   onChange: (value: unknown) => void;
   disabled?: boolean;
   reference?: ReturnType<typeof referenceFor>;
+  context?: FieldContext;
+  error?: string;
 }) {
   const id = useId();
+  const feedback = <>{field.help && <p id={`${id}-help`} className="field-help">{field.help}</p>}
+    {error && <p className="field-error" id={`${id}-error`}>{error}</p>}</>;
+  if (field.type === "custom" && field.editor) {
+    const Editor = field.editor;
+    return <fieldset className="field field-full custom-field" disabled={disabled || field.readOnly} data-field={field.name}
+      aria-describedby={error ? `${id}-error` : undefined} aria-invalid={!!error || undefined}>
+      <legend>{field.label}{field.required && <span className="required"> *</span>}</legend>
+      <Editor id={id} label={field.label} value={structuredValue(value)} onChange={onChange} disabled={disabled || field.readOnly} required={field.required} context={context} />
+      {feedback}
+    </fieldset>;
+  }
   if (reference && field.type !== "select") return (
     <ReferencePicker key={`${reference.path}:${reference.label}`} id={id} name={field.name} reference={reference}
       value={value} onChange={onChange} multiple={field.type === "csv"} required={field.required}
-      disabled={disabled || field.readOnly} help={field.help} />
+      disabled={disabled || field.readOnly} help={field.help} error={error} />
   );
+  if (field.type === "csv") return <div className="field" data-field={field.name}>
+    <TokenInput id={id} label={field.label} value={listValue(value)} onChange={onChange} disabled={disabled || field.readOnly}
+      required={field.required} placeholder={field.placeholder} />{feedback}
+  </div>;
   const common = {
     id,
     name: field.name,
     required: field.required,
     disabled,
     readOnly: field.readOnly,
-    "aria-describedby": field.help ? `${id}-help` : undefined,
+    "aria-describedby": [field.help ? `${id}-help` : "", error ? `${id}-error` : ""].filter(Boolean).join(" ") || undefined,
+    "aria-invalid": !!error || undefined,
   };
   const label = (
     <label htmlFor={id}>
@@ -203,7 +107,7 @@ export function FormField({
   );
   if (field.type === "checkbox")
     return (
-      <div className="field field-checkbox">
+      <div className="field field-checkbox" data-field={field.name}>
         <input
           {...common}
           type="checkbox"
@@ -222,7 +126,8 @@ export function FormField({
     );
   return (
     <div
-      className={`field ${field.type === "markdown" || field.type === "json" || field.type === "textarea" ? "field-full" : ""}`}
+      data-field={field.name}
+      className={`field ${field.type === "markdown" || field.type === "textarea" ? "field-full" : ""}`}
     >
       {label}
       {field.type === "code" ? (
@@ -246,12 +151,10 @@ export function FormField({
             label={field.label}
           />
         </Suspense>
-      ) : field.type === "textarea" || field.type === "json" ? (
+      ) : field.type === "textarea" ? (
         <textarea
           {...common}
-          className={field.type === "json" ? "code-input" : ""}
-          spellCheck={field.type !== "json"}
-          rows={field.type === "json" ? 7 : 4}
+          rows={3}
           value={text(value)}
           onChange={(event) => onChange(event.target.value)}
           placeholder={field.placeholder}
@@ -278,24 +181,21 @@ export function FormField({
       ) : (
         <input
           {...common}
-          type={field.type === "csv" ? "text" : field.type || "text"}
+          type={field.type === "custom" ? "text" : field.type || "text"}
           min={field.min}
           max={field.max}
           step={field.step}
           value={text(value)}
           onChange={(event) => onChange(event.target.value)}
           placeholder={field.placeholder}
+          spellCheck={field.type === "email" || field.type === "url" || /(?:username|token|code|ref|oid)/.test(field.name) ? false : undefined}
           autoComplete={
             field.autoComplete ||
             (field.type === "password" ? "new-password" : "off")
           }
         />
       )}
-      {field.help && (
-        <p id={`${id}-help`} className="field-help">
-          {field.help}
-        </p>
-      )}
+      {feedback}
     </div>
   );
 }
@@ -307,6 +207,8 @@ export function Fields({
   editing = false,
   disabled = false,
   path,
+  errors = {},
+  contextValues = {},
 }: {
   fields: Field[];
   values: Record<string, unknown>;
@@ -314,33 +216,60 @@ export function Fields({
   editing?: boolean;
   disabled?: boolean;
   path?: string;
+  errors?: Record<string, string>;
+  contextValues?: Record<string, unknown>;
 }) {
   const params = useParams();
-  const repoId = params.repoId || path?.match(/^\/v1\/repos\/([^/?]+)/)?.[1] || text(values.repo_id || values.repository_id);
+  const valuesRef = useRef(values);
+  valuesRef.current = values;
+  const repoId = params.repoId || path?.match(/^\/v1\/repos\/([^/?]+)/)?.[1] || text(values.repo_id || values.repository_id || contextValues.repo_id);
   const accountId = params.accountId || path?.match(/^\/v1\/(?:accounts|orgs)\/([^/?]+)/)?.[1] || text(values.account_id || values.owner_id);
-  const needsOwner = fields.some(field => /^(?:principal|user|assignee|reviewer|contributor|accountable|application|installation|required_approver|allowed_approver)/.test(field.name));
+  const needsOwner = fields.some(field => field.type === "custom" || /^(?:principal|user|assignee|reviewer|contributor|accountable|application|installation|required_approver|allowed_approver)/.test(field.name));
   const repository = useResource<Entity>(repoId && !accountId && needsOwner ? `/v1/repos/${encodeURIComponent(repoId)}` : null);
   const ownerId = accountId || text(repository.data?.owner_id);
-  return (
-    <div className="form-grid">
-      {fields
-        .filter((field) => !editing || !field.createOnly)
-        .map((field) => (
+  const visible = fields.filter(field => !editing || !field.createOnly);
+  const sections = [...new Set(visible.map(field => field.section).filter((section): section is string => !!section))];
+  const render = (field: Field) => (
           <FormField
             key={field.name}
             field={field}
             value={values[field.name]}
             disabled={disabled}
+            error={errors[field.name]}
+            context={{ repoId, accountId: ownerId, path, values: { ...contextValues, ...values } }}
             reference={referenceFor(field.name, repoId, ownerId, values, path)}
-            onChange={(value) => setValues({ ...values, [field.name]: value,
+            onChange={(value) => setValues({ ...valuesRef.current, [field.name]: value,
               ...(field.name === "principal_type" ? { principal_id: "" } : {}),
               ...(field.name === "scope" ? { scope_id: "" } : {}),
               ...(["repo_id", "repository_id"].includes(field.name) ? { item_id: "", subject_id: "" } : {}),
+              ...(field.name === "head_repo_id" ? { head: {} } : {}),
             })}
           />
-        ))}
+  );
+  return (
+    <div className="form-grid" onInvalidCapture={event => revealField(event.target as HTMLElement)}>
+      {visible.filter(field => !field.section).map(render)}
+      {sections.map(section => <details className="form-section" key={section}>
+        <summary>{section}</summary>
+        <div className="form-grid">{visible.filter(field => field.section === section).map(render)}</div>
+      </details>)}
     </div>
   );
+}
+
+function revealField(element: HTMLElement) {
+  let parent: HTMLElement | null = element;
+  while (parent) {
+    if (parent instanceof HTMLDetailsElement) parent.open = true;
+    parent = parent.parentElement;
+  }
+}
+
+function focusFieldError(form: HTMLFormElement | null, error: FieldError) {
+  const element = form?.querySelector<HTMLElement>(`[data-field="${CSS.escape(error.field)}"]`);
+  if (!element) return;
+  revealField(element);
+  element.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
 }
 
 export function ConflictRecovery({
@@ -523,6 +452,9 @@ export function ResourceForm({
   );
   const mutation = useMutation();
   const submitting = useRef(false);
+  const form = useRef<HTMLFormElement>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [saved, setSaved] = useState(false);
   const [preparing, setPreparing] = useState(false);
   const [expected, setExpected] = useState(() => {
     const current = initial || precondition;
@@ -543,6 +475,8 @@ export function ResourceForm({
     if (submitting.current) return;
     submitting.current = true;
     setPreparing(true);
+    setFieldErrors({});
+    setSaved(false);
     try {
       const body = serializeFields(fields, draft.values, !!initial);
       const result = await mutation.run<Entity>(path, {
@@ -553,9 +487,14 @@ export function ResourceForm({
       if (result) {
         if (initial && result.etag) setExpected(result);
         draft.clear(result.etag);
+        setSaved(true);
         onSaved(result);
       }
     } catch (cause) {
+      if (cause instanceof FieldError) {
+        setFieldErrors({ [cause.field]: cause.message });
+        focusFieldError(form.current, cause);
+      }
       mutation.setError(
         cause instanceof Error ? cause : new Error("Check your form fields."),
       );
@@ -566,6 +505,7 @@ export function ResourceForm({
   };
   return (
     <form
+      ref={form}
       onSubmit={(event) => {
         void submit(event);
       }}
@@ -574,10 +514,12 @@ export function ResourceForm({
       <Fields
         fields={fields}
         values={draft.values}
-        setValues={draft.setValues}
+        setValues={values => { draft.setValues(values); setSaved(false); setFieldErrors({}); }}
         editing={!!initial}
         disabled={mutation.pending || preparing}
         path={path}
+        errors={fieldErrors}
+        contextValues={initial?.data}
       />
       {children}
       <ErrorNotice error={mutation.error} />
@@ -605,8 +547,8 @@ export function ResourceForm({
         </Notice>
       )}
       <footer className="form-actions">
-        <span className="muted">
-          {draft.dirty
+        <span className="muted" role="status">
+          {saved ? <><Check size={14} aria-hidden="true" /> Saved</> : draft.dirty
             ? draftKey && !draft.storageError
               ? "Draft saved in this browser tab"
               : "Unsaved changes"
@@ -619,7 +561,6 @@ export function ResourceForm({
           busy={mutation.pending || preparing}
           disabled={!!activeViewerRepository()}
         >
-          <Save size={15} />
           {submitLabel}
         </Button>
       </footer>
@@ -635,6 +576,8 @@ export function EditResource({
   onSaved,
   sensitive = false,
   snapshot,
+  method,
+  transform,
 }: {
   path: string;
   fields: Field[];
@@ -643,6 +586,8 @@ export function EditResource({
   onSaved: () => void;
   sensitive?: boolean;
   snapshot?: Snapshot<Entity>;
+  method?: "PATCH" | "PUT";
+  transform?: (values: Record<string, unknown>) => Record<string, unknown>;
 }) {
   const [open, setOpen] = useState(false);
   const resource = useResource<Entity>(open && !snapshot ? path : null);
@@ -669,6 +614,8 @@ export function EditResource({
             path={path}
             initial={current}
             fields={fields}
+            method={method}
+            transform={transform}
             draftKey={sensitive ? undefined : path}
             onCancel={() => setOpen(false)}
             onSaved={() => {
@@ -691,6 +638,7 @@ export function CreateResource({
   transform,
   sensitive = false,
   initiallyOpen = false,
+  variant = "primary",
 }: {
   path: string;
   fields: Field[];
@@ -700,12 +648,13 @@ export function CreateResource({
   transform?: (values: Record<string, unknown>) => Record<string, unknown>;
   sensitive?: boolean;
   initiallyOpen?: boolean;
+  variant?: "primary" | "secondary" | "ghost";
 }) {
   const [open, setOpen] = useState(initiallyOpen);
   return (
     <>
       <Button
-        variant="primary"
+        variant={variant}
         onClick={() => setOpen(true)}
         disabled={!!activeViewerRepository()}
       >
@@ -750,6 +699,7 @@ export function ActionButton({
   confirmText,
   variant,
   sensitive = false,
+  transform,
 }: {
   path: string;
   resourcePath?: string;
@@ -765,6 +715,7 @@ export function ActionButton({
   confirmText?: string;
   variant?: "primary" | "secondary" | "danger" | "ghost";
   sensitive?: boolean;
+  transform?: (body: Record<string, unknown>) => Record<string, unknown>;
 }) {
   const [open, setOpen] = useState(false);
   const [values, setValues] = useState(fieldValues(fields));
@@ -773,6 +724,8 @@ export function ActionButton({
   const [revisionError, setRevisionError] = useState<Error | null>(null);
   const [fetching, setFetching] = useState(false);
   const [credential, setCredential] = useState<unknown>(null);
+  const form = useRef<HTMLFormElement>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const confirmId = useId();
   const mutation = useMutation();
   const revisionPath = resourcePath || path;
@@ -809,6 +762,7 @@ export function ActionButton({
         description={description}
       >
         <form
+          ref={form}
           className="resource-form"
           onSubmit={(event) => {
             event.preventDefault();
@@ -822,7 +776,7 @@ export function ActionButton({
                   method === "GET" ? query(path, valuesBody) : path,
                   {
                     method,
-                    body: method === "GET" ? undefined : valuesBody,
+                    body: method === "GET" ? undefined : transform ? transform(valuesBody) : valuesBody,
                     etag:
                       method !== "GET" && expected
                         ? requireEtag(expected)
@@ -843,6 +797,10 @@ export function ActionButton({
                   onDone(result);
                 }
               } catch (cause) {
+                if (cause instanceof FieldError) {
+                  setFieldErrors({ [cause.field]: cause.message });
+                  focusFieldError(form.current, cause);
+                }
                 mutation.setError(
                   cause instanceof Error
                     ? cause
@@ -855,9 +813,11 @@ export function ActionButton({
           <Fields
             fields={fields}
             values={values}
-            setValues={setValues}
+            setValues={next => { setValues(next); setFieldErrors({}); }}
             disabled={mutation.pending}
             path={path}
+            contextValues={record(snapshot?.data)}
+            errors={fieldErrors}
           />
           {confirmText && (
             <div className="field">

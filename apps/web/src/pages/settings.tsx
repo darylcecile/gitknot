@@ -55,19 +55,25 @@ import { useRepository } from "./repositories.tsx";
 import { FederationProviders } from "./federation.tsx";
 import { Amount } from "./billing.tsx";
 import { AccountExportsPanel } from "./account-exports.tsx";
+import { CapabilitiesEditor, EventsEditor, RolePermissionsEditor } from "../components/editors/permissions.tsx";
+import { AccountPolicyEditor, ScopeConditionsEditor, VaultPolicyEditor, validateAccountPolicy } from "../components/editors/policy-editors.tsx";
+import { BranchRuleEditor, RulePreviewEditor, protectedBranchRule, validateRule } from "../components/editors/rule-editor.tsx";
+import { ReferenceControl } from "../components/editors/controls.tsx";
+import { SettingsNavigation, type SettingsGroup } from "../components/settings-navigation.tsx";
 
 const capabilityField: Field = {
   name: "capabilities",
-  label: "Capabilities",
-  type: "csv",
+  label: "Permissions",
+  type: "custom",
+  editor: CapabilitiesEditor,
   required: true,
-  help: "Explicit capability names, separated by commas. Example: contents.read, issues.write.",
 };
 const policyField: Field = {
   name: "policy",
   label: "Access policy",
-  type: "json",
-  help: "Leave blank on creation to use the API's scoped default. An explicit policy must include repository_ids and is validated before use.",
+  type: "custom",
+  editor: VaultPolicyEditor,
+  section: "Customize access",
 };
 const tokenFields: Field[] = [
   nameField,
@@ -86,15 +92,14 @@ const roleFields: Field[] = [
   { name: "description", label: "Description" },
   {
     name: "capabilities",
-    label: "Capabilities and effects",
-    type: "json",
+    label: "Permissions",
+    type: "custom",
+    editor: RolePermissionsEditor,
     required: true,
     default: [{ capability: "contents.read", effect: "allow" }],
-    help: 'Each entry names an explicit capability and an "allow" or "deny" effect.',
   },
 ];
 const grantFields: Field[] = [
-  { name: "principal_id", label: "Principal ID", required: true },
   {
     name: "principal_type",
     label: "Principal type",
@@ -111,6 +116,7 @@ const grantFields: Field[] = [
     default: "user",
     required: true,
   },
+  { name: "principal_id", label: "Person or identity", required: true },
   roleField,
   {
     name: "effect",
@@ -119,25 +125,17 @@ const grantFields: Field[] = [
     options: ["allow", "deny"],
     default: "allow",
     required: true,
+    section: "Conditions and expiration",
   },
-  { name: "conditions", label: "Scope conditions", type: "json", default: {} },
-  { ...expiryField, required: false },
+  { name: "conditions", label: "Scope conditions", type: "custom", editor: ScopeConditionsEditor, default: {}, section: "Conditions and expiration" },
+  { ...expiryField, required: false, section: "Conditions and expiration" },
 ];
 
-const repositorySections = [
-  ["general", "General"],
-  ["access", "Collaborators"],
-  ["roles", "Custom roles"],
-  ["rules", "Branch & tag rules"],
-  ["permissions", "Permission explanation"],
-  ["tokens", "Credentials"],
-  ["viewer-grants", "Viewer grants"],
-  ["secrets", "Secrets & variables"],
-  ["webhooks", "Webhooks"],
-  ["integrations", "Installations"],
-  ["transfers", "Transfers"],
-  ["exports", "Exports & recovery"],
-  ["audit", "Audit history"],
+const repositorySections: SettingsGroup[] = [
+  { title: "Repository", items: [["general", "General"], ["rules", "Branch & tag rules"]] },
+  { title: "Access", items: [["access", "Collaborators"], ["roles", "Custom roles"], ["tokens", "Credentials"], ["viewer-grants", "Viewer grants"], ["permissions", "Check permissions"]] },
+  { title: "Automation", items: [["secrets", "Secrets & variables"], ["webhooks", "Webhooks"], ["integrations", "Installations"]] },
+  { title: "Administration", items: [["transfers", "Transfers"], ["exports", "Exports & recovery"], ["audit", "Audit history"]] },
 ];
 
 export function RepositorySettingsPage() {
@@ -356,21 +354,10 @@ export function RepositorySettingsPage() {
     <>
       <PageHeader
         title="Repository settings"
-        description="Explicit access, explainable policy, and a clear lifecycle."
+        description="Manage access, automation, and repository preferences."
       />
       <div className="settings-layout">
-        <nav className="settings-navigation" aria-label="Repository settings">
-          {repositorySections.map(([path, label]) => (
-            <NavLink
-              end
-              key={path}
-              to={repoLink(repo.id, `settings/${path}`)}
-              className={section === path ? "active" : ""}
-            >
-              {label}
-            </NavLink>
-          ))}
-        </nav>
+        <SettingsNavigation label="Repository settings" base={repoLink(repo.id, "settings")} section={section} groups={repositorySections} />
         <div className="settings-content stack">{content}</div>
       </div>
     </>
@@ -381,17 +368,13 @@ function RulesPanel({ base }: { base: string }) {
   const [dryRun, setDryRun] = useState<unknown>(null);
   return (
     <>
-      <Notice>
-        Organization constraints compose with repository rules. Content-write
-        access does not bypass branch policy.
-      </Notice>
       <ResourceCollection
         path={`${base}/rules`}
         spec={{
           title: "Branch & tag rules",
           singular: "rule",
           description:
-            "Select refs and define review, verification, history, signature, path, and publication requirements.",
+            "Choose which branches to protect and what a change needs before it can merge.",
           fields: [
             nameField,
             {
@@ -404,22 +387,17 @@ function RulesPanel({ base }: { base: string }) {
             {
               name: "config",
               label: "Rule definition",
-              type: "json",
+              type: "custom",
+              editor: BranchRuleEditor,
+              validate: validateRule,
               required: true,
-              help: "The server validates all typed requirements and rejects contradictory rules.",
-              default: {
-                version: 1,
-                target: "refs/heads/main",
-                updates: "pull_request_only",
-                reviews: { minimum: 1, disallow_author_approval: true },
-                history: { allow_force_push: false, allow_deletion: false },
-              },
+              default: protectedBranchRule,
             },
           ],
-          columns: ["name", "target", "enforcement", "mandatory"],
+          columns: ["name", "enforcement", "mandatory"],
         }}
       />
-      <Panel title="Preview effective policy">
+      <details className="detail-disclosure"><summary>Preview a policy change</summary>
         <div className="panel-body">
           <ActionButton
             path={`${base}/rules/preview`}
@@ -428,9 +406,11 @@ function RulesPanel({ base }: { base: string }) {
               {
                 name: "rule",
                 label: "Proposed rule",
-                type: "json",
+                type: "custom",
+                editor: RulePreviewEditor,
                 required: true,
-                help: "Supply name, enforcement, and the complete config object.",
+                default: { name: "", enforcement: "active", config: protectedBranchRule },
+                validate: value => validateRule(record(value).config),
               },
               {
                 name: "replace_rule_id",
@@ -442,12 +422,14 @@ function RulesPanel({ base }: { base: string }) {
             onDone={(result) => setDryRun(result.data)}
           />
           {dryRun !== null && (
-            <pre className="source-preview">
-              {JSON.stringify(dryRun, null, 2)}
-            </pre>
+            <div className="result-summary"><Status value={record(dryRun).valid ? "passed" : "blocked"} />
+              <Metadata values={{ conflicts: record(dryRun).conflicts, requirements: record(dryRun).obligations }} />
+              <JsonDetails title="Full policy evaluation" value={dryRun} />
+            </div>
           )}
         </div>
-      </Panel>
+      </details>
+      <details className="detail-disclosure"><summary>Emergency access</summary>
       <ResourceCollection
         path={`${base}/rule-bypasses`}
         spec={{
@@ -483,6 +465,7 @@ function RulesPanel({ base }: { base: string }) {
           columns: ["id", "reason", "expires_at"],
         }}
       />
+      </details>
     </>
   );
 }
@@ -512,9 +495,9 @@ export function PermissionExplanation({ base }: { base: string }) {
       />
       {explanation !== null && (
         <div className="panel-body">
-          <pre className="source-preview">
-            {JSON.stringify(explanation, null, 2)}
-          </pre>
+          <Status value={record(explanation).allowed ? "approved" : "denied"} />
+          <Metadata values={{ permission: record(explanation).capability, reasons: record(explanation).reasons, requirements: record(explanation).requirements }} />
+          <JsonDetails title="Full access evaluation" value={explanation} />
         </div>
       )}
     </Panel>
@@ -524,18 +507,13 @@ export function PermissionExplanation({ base }: { base: string }) {
 export function VaultPanel({ base }: { base: string }) {
   return (
     <>
-      <Notice>
-        Precedence: environment → repository → owner account → explicitly
-        allowed personal scope. Existing secret values are never returned by
-        management APIs.
-      </Notice>
       <ResourceCollection
         path={`${base}/secrets`}
         spec={{
           title: "Secrets",
           singular: "secret",
           description:
-            "Write-only encrypted values. Rotation creates an immutable new version.",
+            "Encrypted values for workflows. Secret values are only shown when you enter them.",
           fields: [
             { ...nameField, createOnly: true },
             {
@@ -564,7 +542,7 @@ export function VaultPanel({ base }: { base: string }) {
           title: "Variables",
           singular: "variable",
           description:
-            "Readable configuration values, with the same explicit scope and precedence.",
+            "Configuration values available to your workflows.",
           fields: [
             { ...nameField, createOnly: true },
             { name: "value", label: "Value", type: "textarea", required: true },
@@ -622,7 +600,8 @@ export function WebhooksPanel({
           {
             name: "events",
             label: "Event subscriptions",
-            type: "csv",
+            type: "custom",
+            editor: EventsEditor,
             required: true,
           },
           {
@@ -636,7 +615,8 @@ export function WebhooksPanel({
           {
             name: "events",
             label: "Event subscriptions",
-            type: "csv",
+            type: "custom",
+            editor: EventsEditor,
             required: true,
           },
           {
@@ -751,9 +731,7 @@ export function WebhookPage() {
           {delivery.data && (
             <>
               <Metadata values={delivery.data} />
-              <pre className="source-preview">
-                {JSON.stringify(delivery.data, null, 2)}
-              </pre>
+              <JsonDetails title="Delivery payload" value={delivery.data} />
             </>
           )}
         </div>
@@ -849,7 +827,7 @@ export function AccountsPage() {
     <>
       <PageHeader
         title="Accounts & teams"
-        description="Personal projects and shared organizations use the same explicit permission model."
+        description="Your personal account and the organizations you work with."
         actions={
           <CreateResource
             path={endpoints.orgs}
@@ -895,21 +873,11 @@ export function AccountsPage() {
   );
 }
 
-const accountSections = [
-  ["overview", "Overview"],
-  ["members", "Members"],
-  ["teams", "Teams"],
-  ["invitations", "Invitations"],
-  ["roles", "Custom roles"],
-  ["identities", "Service identities"],
-  ["integrations", "Applications & installations"],
-  ["sso", "SSO & provisioning"],
-  ["secrets", "Secrets & variables"],
-  ["runners", "Runner pools"],
-  ["permissions", "Access grants"],
-  ["settings", "Account settings"],
-  ["exports", "Account exports"],
-  ["audit", "Audit history"],
+const accountSections: SettingsGroup[] = [
+  { title: "Account", items: [["overview", "Overview"], ["settings", "Account settings"]] },
+  { title: "People and access", items: [["members", "Members"], ["teams", "Teams"], ["invitations", "Invitations"], ["roles", "Custom roles"], ["permissions", "Access grants"], ["sso", "SSO & provisioning"]] },
+  { title: "Automation", items: [["identities", "Service identities"], ["integrations", "Applications"], ["secrets", "Secrets & variables"], ["runners", "Runner pools"]] },
+  { title: "Administration", items: [["exports", "Account exports"], ["audit", "Audit history"]] },
 ];
 
 export function AccountPage() {
@@ -1166,24 +1134,8 @@ export function AccountPage() {
         }
       />
       <div className="settings-layout">
-        <nav className="settings-navigation" aria-label="Account navigation">
-          {accountSections
-            .filter(
-              ([path]) =>
-                data.type === "organization" ||
-                !["members", "teams", "invitations", "sso"].includes(path!),
-            )
-            .map(([path, label]) => (
-              <NavLink
-                key={path}
-                className={section === path ? "active" : ""}
-                end
-                to={`/accounts/${accountId}/${path}`}
-              >
-                {label}
-              </NavLink>
-            ))}
-        </nav>
+        <SettingsNavigation label="Account navigation" base={`/accounts/${accountId}`} section={section}
+          groups={accountSections.map(group => ({ ...group, items: group.items.filter(([path]) => data.type === "organization" || !["members", "teams", "invitations", "sso"].includes(path)) }))} />
         <div className="settings-content stack">{content}</div>
       </div>
     </>
@@ -1271,24 +1223,10 @@ function TeamRepositoryGrant({
         }}
       >
         <div className="form-grid">
-          <div className="field">
-            <label htmlFor="team-repository-id">Repository ID</label>
-            <input
-              id="team-repository-id"
-              value={repoId}
-              onChange={(event) => setRepoId(event.target.value)}
-              required
-            />
-          </div>
-          <div className="field">
-            <label htmlFor="team-role">Role ID</label>
-            <input
-              id="team-role"
-              value={role}
-              onChange={(event) => setRole(event.target.value)}
-              required
-            />
-          </div>
+          <ReferenceControl name="repo_id" label="Repository" value={repoId} onChange={next => setRepoId(String(next))} multiple={false}
+            context={{ repoId, accountId, values: {} }} required />
+          <ReferenceControl name="role_id" label="Role" value={role} onChange={next => setRole(String(next))} multiple={false}
+            context={{ repoId, accountId, values: {} }} required />
         </div>
         <ErrorNotice error={mutation.error} />
         {granted && (
@@ -1314,55 +1252,32 @@ function TeamRepositoryGrant({
 function AccountPolicyPanel({ base }: { base: string }) {
   const policy = useResource<Entity>(`${base}/policy`);
   const [preview, setPreview] = useState<unknown>(null);
+  const config = record(policy.data?.policy);
+  const fields: Field[] = [{ name: "policy", label: "Account policy", type: "custom", editor: AccountPolicyEditor,
+    required: true, validate: validateAccountPolicy, default: config }];
   return (
     <Panel
-      title="Account policy ceiling"
-      description="Policy applies to all current grants and credentials in this account."
+      title="Account policy"
+      description="Default access and limits for every repository in this account."
     >
       <ErrorNotice error={policy.error} retry={policy.refresh} />
-      {policy.snapshot ? (
-        <ResourceForm
-          path={`${base}/policy`}
-          method="PUT"
-          initial={policy.snapshot}
-          fields={[
-            {
-              name: "policy",
-              label: "Typed account policy",
-              type: "json",
-              required: true,
-            },
-          ]}
-          transform={(body) => record(body.policy)}
-          draftKey={`${base}:policy`}
-          onSaved={policy.refresh}
-        />
-      ) : (
-        policy.loading && <Loading />
-      )}
-      {policy.data && (
-        <ResourceForm
-          key={`preview-${text(policy.data.revision)}`}
-          path={`${base}/policy/preview`}
-          fields={[
-            {
-              name: "policy",
-              label: "Policy to preview",
-              type: "json",
-              required: true,
-              default: policy.data.policy,
-            },
-          ]}
-          transform={(body) => record(body.policy)}
-          submitLabel="Preview policy"
-          onSaved={(result) => setPreview(result.data)}
-        />
-      )}
+      {policy.loading && !policy.data && <Loading />}
+      {policy.snapshot && <div className="panel-body">
+        <Metadata values={{ default_visibility: config.default_repository_visibility,
+          verified_email_required: config.require_verified_email, two_factor_required: config.require_mfa,
+          outside_collaborators: config.allow_outside_collaborators,
+          maximum_token_lifetime_days: Number(config.maximum_token_lifetime_seconds) / 86400 }} />
+        <div className="row-actions">
+          <EditResource path={`${base}/policy`} snapshot={policy.snapshot} method="PUT" buttonLabel="Edit policy" title="Edit policy" fields={fields}
+            transform={body => record(body.policy)} onSaved={policy.refresh} />
+          <ActionButton path={`${base}/policy/preview`} label="Preview changes" fields={fields}
+            transform={body => record(body.policy)} onDone={result => setPreview(result.data)} />
+        </div>
+      </div>}
       {preview !== null && (
         <div className="panel-body">
-          <pre className="source-preview">
-            {JSON.stringify(preview, null, 2)}
-          </pre>
+          <Metadata values={record(preview)} />
+          <JsonDetails title="Full policy preview" value={preview} />
         </div>
       )}
     </Panel>

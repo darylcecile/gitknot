@@ -7,7 +7,7 @@ import {
   useParams,
   useSearchParams,
 } from "react-router";
-import { ArrowRight, GitFork } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import {
   ApiError,
   request,
@@ -154,27 +154,27 @@ const authFields: Record<string, Field[]> = {
 };
 const authTitles: Record<string, [string, string, string]> = {
   login: [
-    "Welcome back.",
-    "Your code, conversations, and next decisions are right here.",
+    "Sign in to GitKnot",
+    "",
     "Sign in",
   ],
   signup: [
-    "Good work starts here.",
-    "Create your GitKnot account and bring your next project together.",
+    "Create your account",
+    "A place for your code and the people you build with.",
     "Create account",
   ],
   verify: [
-    "Verify your email.",
-    "One more step to keep your account connected and secure.",
+    "Verify your email",
+    "Enter the code from your verification email.",
     "Verify email",
   ],
   recover: [
-    "Let’s get you back in.",
+    "Reset your password",
     "We’ll send recovery instructions if an account uses this address.",
     "Send recovery email",
   ],
   reset: [
-    "A fresh start.",
+    "Choose a new password",
     "Choose a new password to regain access to your account.",
     "Reset password",
   ],
@@ -213,36 +213,14 @@ function AuthForm({ action }: { action: string }) {
   };
   return (
     <main className="auth-layout">
-      <aside className="auth-brand">
-        <Link to="/" className="brand">
-          <img src="/favicon.svg" alt="" />
-          GitKnot
-        </Link>
-        <div>
-          <span className="eyebrow">A shared place to build</span>
-          <h2>
-            Less noise.
-            <br />
-            More good work.
-          </h2>
-          <p>
-            Code, decisions, and reproducible workflows. Connected, from the
-            first idea to the final change.
-          </p>
-          <div className="auth-knot" aria-hidden="true">
-            <GitFork size={130} strokeWidth={1} />
-          </div>
-        </div>
-        <span className="auth-footer">Made for people. Ready for agents.</span>
-      </aside>
       <section className="auth-content">
         <div className="auth-form">
-          <Link to="/" className="mobile-brand">
-            <img src="/favicon.svg" alt="" />
+          <Link to="/" className="auth-logo">
+            <img src="/favicon.svg" alt="" width="32" height="32" />
             GitKnot
           </Link>
           <h1>{title}</h1>
-          <p>{description}</p>
+          {description && <p>{description}</p>}
           {success ? (
             <Notice tone="success">
               {action === "recover"
@@ -338,7 +316,6 @@ function AuthForm({ action }: { action: string }) {
               )}
               <Button type="submit" variant="primary" busy={mutation.pending}>
                 {label}
-                <ArrowRight size={16} />
               </Button>
             </form>
           )}
